@@ -1,0 +1,203 @@
+---
+title: 可执行文件
+description: 直接运行编译后的可执行文件部署 EchPlus 客户端
+---
+
+如果你不想使用 Docker，可以直接编译运行可执行文件。
+
+## 前置要求
+
+- [Go](https://go.dev/dl/) 1.23+（需要支持 ECH 功能）
+
+## 编译
+
+```bash
+cd apps/client
+
+# 下载依赖
+go mod tidy
+
+# 编译
+go build -o echplus-client .
+```
+
+### 交叉编译
+
+为不同平台编译：
+
+```bash
+# Linux (amd64)
+GOOS=linux GOARCH=amd64 go build -o echplus-client-linux-amd64 .
+
+# Linux (arm64)
+GOOS=linux GOARCH=arm64 go build -o echplus-client-linux-arm64 .
+
+# Windows
+GOOS=windows GOARCH=amd64 go build -o echplus-client.exe .
+
+# macOS (Intel)
+GOOS=darwin GOARCH=amd64 go build -o echplus-client-darwin-amd64 .
+
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o echplus-client-darwin-arm64 .
+```
+
+### 优化编译
+
+生产环境建议使用优化参数：
+
+```bash
+CGO_ENABLED=0 go build -ldflags="-s -w" -o echplus-client .
+```
+
+- `-s` 去除符号表
+- `-w` 去除调试信息
+- `CGO_ENABLED=0` 静态编译，无需依赖 libc
+
+## 运行
+
+### 命令行参数
+
+```bash
+./echplus-client -l 127.0.0.1:30000 -f your-worker.workers.dev:443 -token your-secret-token
+```
+
+| 参数       | 说明                   | 默认值                    |
+| ---------- | ---------------------- | ------------------------- |
+| `-l`       | 本地代理监听地址       | `127.0.0.1:30000`         |
+| `-f`       | 服务端地址 (必填)      | -                         |
+| `-ip`      | 指定服务端 IP          | -                         |
+| `-token`   | 身份验证令牌           | `147258369`               |
+| `-dns`     | ECH 查询 DoH 服务器    | `dns.alidns.com/dns-query`|
+| `-ech`     | ECH 配置域名           | `cloudflare-ech.com`      |
+| `-routing` | 分流模式               | `global`                  |
+
+### 环境变量
+
+也可以通过环境变量配置：
+
+```bash
+export ECHPLUS_LISTEN=127.0.0.1:30000
+export ECHPLUS_SERVER=your-worker.workers.dev:443
+export ECHPLUS_TOKEN=your-secret-token
+export ECHPLUS_ROUTING=bypass_cn
+
+./echplus-client
+```
+
+优先级：命令行参数 > 环境变量 > 默认值
+
+## 分流模式
+
+| 模式        | 说明                           |
+| ----------- | ------------------------------ |
+| `global`    | 全局代理，所有流量通过代理     |
+| `bypass_cn` | 跳过中国大陆 IP，国内网站直连  |
+| `none`      | 直连模式，不使用代理           |
+
+```bash
+# 全局代理
+./echplus-client -f server.com:443 -routing global
+
+# 跳过中国大陆
+./echplus-client -f server.com:443 -routing bypass_cn
+```
+
+## 交互命令
+
+运行后可以使用以下命令：
+
+| 命令              | 说明             |
+| ----------------- | ---------------- |
+| `status`          | 查看服务器状态   |
+| `restart`         | 重启代理服务器   |
+| `routing <mode>`  | 切换分流模式     |
+| `help`            | 显示帮助信息     |
+| `quit` / `exit`   | 退出程序         |
+
+```
+> status
+[状态] 运行中
+  监听地址: 127.0.0.1:30000
+  服务端: your-server.com:443
+  分流模式: global
+
+> routing bypass_cn
+[命令] 正在切换分流模式为 bypass_cn 并重启...
+[命令] 分流模式已切换为 bypass_cn
+```
+
+## 后台运行
+
+### 使用 nohup
+
+```bash
+nohup ./echplus-client -f your-server.com:443 -token your-token > client.log 2>&1 &
+```
+
+### 使用 screen
+
+```bash
+screen -S echplus
+./echplus-client -f your-server.com:443 -token your-token
+# Ctrl+A, D 分离会话
+# screen -r echplus 恢复会话
+```
+
+### 使用 systemd (推荐)
+
+创建服务文件 `/etc/systemd/system/echplus-client.service`:
+
+```ini
+[Unit]
+Description=EchPlus Proxy Client
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+WorkingDirectory=/opt/echplus
+Environment=ECHPLUS_LISTEN=127.0.0.1:30000
+Environment=ECHPLUS_SERVER=your-server.com:443
+Environment=ECHPLUS_TOKEN=your-secret-token
+Environment=ECHPLUS_ROUTING=bypass_cn
+ExecStart=/opt/echplus/echplus-client
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启用服务：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable echplus-client
+sudo systemctl start echplus-client
+
+# 查看状态
+sudo systemctl status echplus-client
+
+# 查看日志
+sudo journalctl -u echplus-client -f
+```
+
+## 代理协议
+
+客户端同时支持 SOCKS5 和 HTTP 代理协议，监听同一端口：
+
+- SOCKS5: 支持 TCP 连接和 UDP ASSOCIATE（DNS 查询）
+- HTTP: 支持 CONNECT 隧道和普通 HTTP 代理
+
+配置应用程序使用代理：
+
+```bash
+# SOCKS5
+export ALL_PROXY=socks5://127.0.0.1:30000
+
+# HTTP
+export HTTP_PROXY=http://127.0.0.1:30000
+export HTTPS_PROXY=http://127.0.0.1:30000
+```

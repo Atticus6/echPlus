@@ -1,0 +1,40 @@
+---
+title: EchPlus 文档
+description: 基于 ECH 技术的安全代理工具
+---
+
+欢迎使用 EchPlus！这是一个基于 ECH (Encrypted Client Hello) 技术的代理工具，支持 SOCKS5 和 HTTP 代理协议。
+
+## 特性
+
+- 🔐 基于 ECH 技术，增强隐私保护
+- 🖥️ 跨平台桌面客户端 (Windows / macOS / Linux)
+- 💻 命令行客户端，适合服务器部署
+- 🌐 支持 SOCKS5 和 HTTP 代理协议
+- 🚦 多种分流模式：全局代理 / 跳过中国大陆 / 直连
+- ⚙️ 支持自定义 DoH 服务器
+
+## 快速开始
+
+<Cards>
+  <Card title="技术原理" href="/docs/principle" />
+  <Card title="服务端部署" href="/docs/server" />
+  <Card title="命令行客户端" href="/docs/client" />
+  <Card title="桌面端安装" href="/docs/desktop" />
+</Cards>
+
+## 项目结构
+
+```
+echplus/
+├── apps/
+│   ├── client/     # 命令行客户端 (Go)
+│   ├── desktop/    # 桌面客户端 (Wails3 + React)
+│   ├── server/     # 服务端 (Go)
+│   └── docs/       # 文档站点 (Next.js)
+└── ...
+```
+
+## 许可证
+
+本项目基于 MIT License 开源。

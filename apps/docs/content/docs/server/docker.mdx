@@ -1,0 +1,142 @@
+---
+title: Docker部署(推荐)
+description: 使用 Docker 部署 EchPlus 服务端
+---
+
+Docker 是部署 EchPlus 服务端最简单的方式，无需安装 Go 环境。
+
+## 前置要求
+
+- [Docker](https://docs.docker.com/get-docker/) 20.10+
+- [Docker Compose](https://docs.docker.com/compose/install/) (可选)
+
+## 快速开始
+
+### 1. 构建镜像
+
+```bash
+cd apps/server
+docker build -t echplus-server .
+```
+
+### 2. 运行容器
+
+```bash
+docker run -d \
+  --name echplus-server \
+  -p 3325:3325 \
+  -e TOKEN=your-secret-token \
+  -e PORT=3325 \
+  echplus-server
+```
+
+### 3. 验证运行
+
+```bash
+# 检查容器状态
+docker ps | grep echplus-server
+
+# 健康检查
+curl http://localhost:3325/health
+# 返回: OK
+```
+
+## Docker Compose 部署
+
+创建 `docker-compose.yml`:
+
+```yaml
+version: "3.8"
+services:
+  echplus-server:
+    build: ./apps/server
+    container_name: echplus-server
+    ports:
+      - "3325:3325"
+    environment:
+      - TOKEN=your-secret-token
+      - PORT=3325
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3325/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
+
+运行：
+
+```bash
+docker-compose up -d
+```
+
+## 环境变量
+
+| 变量    | 默认值      | 说明         |
+| ------- | ----------- | ------------ |
+| `TOKEN` | `147258369` | 身份验证令牌 |
+| `PORT`  | `3325`      | 监听端口     |
+
+## 常用命令
+
+```bash
+# 查看日志
+docker logs -f echplus-server
+
+# 停止容器
+docker stop echplus-server
+
+# 重启容器
+docker restart echplus-server
+
+# 删除容器
+docker rm -f echplus-server
+
+# 更新镜像
+docker build -t echplus-server . && docker restart echplus-server
+```
+
+## 生产环境建议
+
+### 资源限制
+
+```yaml
+services:
+  echplus-server:
+    # ...
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 64M
+```
+
+### 日志配置
+
+```yaml
+services:
+  echplus-server:
+    # ...
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+### 网络隔离
+
+```yaml
+services:
+  echplus-server:
+    # ...
+    networks:
+      - echplus-net
+
+networks:
+  echplus-net:
+    driver: bridge
+```

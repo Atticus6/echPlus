@@ -1,0 +1,192 @@
+---
+title: Docker 部署
+description: 使用 Docker 部署 EchPlus 客户端
+---
+
+Docker 是部署 EchPlus 客户端最简单的方式，无需安装 Go 环境。
+
+## 前置要求
+
+- [Docker](https://docs.docker.com/get-docker/) 20.10+
+- [Docker Compose](https://docs.docker.com/compose/install/) (可选)
+
+## 快速开始
+
+### 1. 构建镜像
+
+```bash
+cd apps/client
+docker build -t echplus-client .
+```
+
+### 2. 运行容器
+
+```bash
+docker run -d \
+  --name echplus-client \
+  -p 30000:30000 \
+  -e ECHPLUS_SERVER=your-worker.workers.dev:443 \
+  -e ECHPLUS_TOKEN=your-secret-token \
+  echplus-client
+```
+
+### 3. 验证运行
+
+```bash
+# 检查容器状态
+docker ps | grep echplus-client
+
+# 测试代理连接
+curl -x socks5://127.0.0.1:30000 https://httpbin.org/ip
+```
+
+## Docker Compose 部署
+
+创建 `docker-compose.yml`:
+
+```yaml
+version: "3.8"
+services:
+  echplus-client:
+    build: ./apps/client
+    container_name: echplus-client
+    ports:
+      - "30000:30000"
+    environment:
+      - ECHPLUS_LISTEN=0.0.0.0:30000
+      - ECHPLUS_SERVER=your-worker.workers.dev:443
+      - ECHPLUS_TOKEN=your-secret-token
+      - ECHPLUS_ROUTING=bypass_cn
+    restart: unless-stopped
+```
+
+运行：
+
+```bash
+docker-compose up -d
+```
+
+## 环境变量
+
+| 变量              | 默认值                     | 说明                 |
+| ----------------- | -------------------------- | -------------------- |
+| `ECHPLUS_LISTEN`  | `127.0.0.1:30000`          | 本地代理监听地址     |
+| `ECHPLUS_SERVER`  | -                          | 服务端地址 (必填)    |
+| `ECHPLUS_SERVER_IP` | -                        | 指定服务端 IP        |
+| `ECHPLUS_TOKEN`   | `147258369`                | 身份验证令牌         |
+| `ECHPLUS_DNS`     | `dns.alidns.com/dns-query` | ECH 查询 DoH 服务器  |
+| `ECHPLUS_ECH_DOMAIN` | `cloudflare-ech.com`    | ECH 配置域名         |
+| `ECHPLUS_ROUTING` | `global`                   | 分流模式             |
+
+## 分流模式
+
+| 模式        | 说明                           |
+| ----------- | ------------------------------ |
+| `global`    | 全局代理，所有流量通过代理     |
+| `bypass_cn` | 跳过中国大陆 IP，国内网站直连  |
+| `none`      | 直连模式，不使用代理           |
+
+```bash
+# 使用 bypass_cn 模式
+docker run -d \
+  --name echplus-client \
+  -p 30000:30000 \
+  -e ECHPLUS_SERVER=your-worker.workers.dev:443 \
+  -e ECHPLUS_TOKEN=your-secret-token \
+  -e ECHPLUS_ROUTING=bypass_cn \
+  echplus-client
+```
+
+## 常用命令
+
+```bash
+# 查看日志
+docker logs -f echplus-client
+
+# 停止容器
+docker stop echplus-client
+
+# 重启容器
+docker restart echplus-client
+
+# 删除容器
+docker rm -f echplus-client
+
+# 更新镜像
+docker build -t echplus-client . && docker restart echplus-client
+```
+
+## 生产环境建议
+
+### 资源限制
+
+```yaml
+services:
+  echplus-client:
+    # ...
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 32M
+```
+
+### 日志配置
+
+```yaml
+services:
+  echplus-client:
+    # ...
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+### 网络模式
+
+如果需要让局域网其他设备使用代理：
+
+```yaml
+services:
+  echplus-client:
+    # ...
+    environment:
+      - ECHPLUS_LISTEN=0.0.0.0:30000
+    ports:
+      - "30000:30000"
+```
+
+然后其他设备可以使用 `<宿主机IP>:30000` 作为代理地址。
+
+## 完整示例
+
+```yaml
+version: "3.8"
+services:
+  echplus-client:
+    build: ./apps/client
+    container_name: echplus-client
+    ports:
+      - "30000:30000"
+    environment:
+      - ECHPLUS_LISTEN=0.0.0.0:30000
+      - ECHPLUS_SERVER=your-worker.workers.dev:443
+      - ECHPLUS_TOKEN=your-secret-token
+      - ECHPLUS_ROUTING=bypass_cn
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```

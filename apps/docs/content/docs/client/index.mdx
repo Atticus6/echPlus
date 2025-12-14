@@ -1,0 +1,171 @@
+---
+title: 命令行客户端
+description: EchPlus 命令行客户端使用指南
+---
+
+## 概述
+
+命令行客户端适合在服务器、路由器或需要自动化的场景中使用。
+
+## 安装
+
+### 下载预编译版本
+
+从 [Releases](https://github.com/atticus6/echPlus/releases) 下载对应平台的二进制文件：
+
+- `echplus-client-linux-amd64` - Linux x64
+- `echplus-client-linux-arm64` - Linux ARM64
+- `echplus-client-darwin-amd64` - macOS Intel
+- `echplus-client-darwin-arm64` - macOS Apple Silicon
+- `echplus-client-windows-amd64.exe` - Windows x64
+
+### 从源码编译
+
+```bash
+cd apps/client
+go build -o echplus-client .
+```
+
+### Docker 运行
+
+```bash
+docker run -d \
+  --name echplus-client \
+  -p 30000:30000 \
+  -e ECHPLUS_SERVER=your-worker.workers.dev:443 \
+  -e ECHPLUS_TOKEN=your-token \
+  echplus-client
+```
+
+## 快速开始
+
+```bash
+./echplus-client \
+  -l 127.0.0.1:30000 \
+  -f your-server.com:443 \
+  -token your-secret-token
+```
+
+启动后，将应用程序的代理设置为 `127.0.0.1:30000`（支持 SOCKS5 和 HTTP）。
+
+## 配置参数
+
+| 参数 | 环境变量 | 默认值 | 说明 |
+|------|----------|--------|------|
+| `-l` | `ECHPLUS_LISTEN` | `127.0.0.1:30000` | 本地代理监听地址 |
+| `-f` | `ECHPLUS_SERVER` | - | 服务端地址 (必填) |
+| `-ip` | `ECHPLUS_SERVER_IP` | - | 指定服务端 IP (可选) |
+| `-token` | `ECHPLUS_TOKEN` | `147258369` | 身份验证令牌 |
+| `-dns` | `ECHPLUS_DNS` | `dns.alidns.com/dns-query` | DoH 服务器 |
+| `-ech` | `ECHPLUS_ECH_DOMAIN` | `cloudflare-ech.com` | ECH 配置域名 |
+| `-routing` | `ECHPLUS_ROUTING` | `global` | 分流模式 |
+
+## 分流模式
+
+| 模式 | 说明 |
+|------|------|
+| `global` | 全局代理，所有流量通过代理 |
+| `bypass_cn` | 跳过中国大陆 IP，国内网站直连 |
+| `none` | 直连模式，不使用代理 |
+
+### 示例
+
+```bash
+# 全局代理
+./echplus-client -f server.com:443 -routing global
+
+# 跳过中国大陆
+./echplus-client -f server.com:443 -routing bypass_cn
+
+# 直连模式
+./echplus-client -f server.com:443 -routing none
+```
+
+## 交互命令
+
+运行后可以使用以下命令：
+
+| 命令 | 说明 |
+|------|------|
+| `status` | 查看服务器状态 |
+| `restart` | 重启代理服务器 |
+| `routing <mode>` | 切换分流模式 |
+| `help` | 显示帮助信息 |
+| `quit` / `exit` / `q` | 退出程序 |
+
+### 示例
+
+```
+> status
+[状态] 运行中
+  监听地址: 127.0.0.1:30000
+  服务端: your-server.com:443
+  分流模式: global
+
+> routing bypass_cn
+[命令] 正在切换分流模式为 bypass_cn 并重启...
+[命令] 分流模式已切换为 bypass_cn
+```
+
+## 使用环境变量
+
+可以通过环境变量配置，方便在容器或脚本中使用：
+
+```bash
+export ECHPLUS_LISTEN=0.0.0.0:30000
+export ECHPLUS_SERVER=your-server.com:443
+export ECHPLUS_TOKEN=your-secret-token
+export ECHPLUS_ROUTING=bypass_cn
+
+./echplus-client
+```
+
+## Systemd 服务
+
+创建 `/etc/systemd/system/echplus.service`:
+
+```ini
+[Unit]
+Description=EchPlus Proxy Client
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+Environment=ECHPLUS_LISTEN=127.0.0.1:30000
+Environment=ECHPLUS_SERVER=your-server.com:443
+Environment=ECHPLUS_TOKEN=your-secret-token
+ExecStart=/usr/local/bin/echplus-client
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启用服务：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable echplus
+sudo systemctl start echplus
+```
+
+## 常见问题
+
+### 连接失败
+
+1. 检查服务端地址是否正确
+2. 确认 Token 与服务端一致
+3. 检查网络连接
+
+### ECH 配置获取失败
+
+1. 尝试更换 DoH 服务器：`-dns 1.1.1.1/dns-query`
+2. 检查 ECH 域名是否可访问
+
+### 分流不生效
+
+1. 确认使用 `bypass_cn` 模式
+2. 首次运行会自动下载中国 IP 列表
+3. 检查 IP 列表文件是否存在

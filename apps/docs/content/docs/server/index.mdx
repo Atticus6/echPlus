@@ -1,0 +1,166 @@
+---
+title: 简介
+description: EchPlus 服务端部署指南
+---
+
+## 概述
+
+EchPlus 服务端是一个 WebSocket 代理服务器，负责接收客户端请求并转发到目标服务器。
+
+## 部署方式
+
+### Docker 部署 (推荐)
+
+#### 1. 构建镜像
+
+```bash
+cd apps/server
+docker build -t echplus-server .
+```
+
+#### 2. 运行容器
+
+```bash
+docker run -d \
+  --name echplus-server \
+  -p 3325:3325 \
+  -e TOKEN=your-secret-token \
+  -e PORT=3325 \
+  echplus-server
+```
+
+#### 3. Docker Compose
+
+创建 `docker-compose.yml`:
+
+```yaml
+version: "3.8"
+services:
+  echplus-server:
+    build: ./apps/server
+    ports:
+      - "3325:3325"
+    environment:
+      - TOKEN=your-secret-token
+      - PORT=3325
+    restart: unless-stopped
+```
+
+运行：
+
+```bash
+docker-compose up -d
+```
+
+### 手动部署
+
+#### 1. 编译
+
+```bash
+cd apps/server
+go build -o echplus-server .
+```
+
+#### 2. 运行
+
+```bash
+./echplus-server -t your-secret-token -p 3325
+```
+
+## 配置参数
+
+| 参数 | 环境变量 | 默认值      | 说明         |
+| ---- | -------- | ----------- | ------------ |
+| `-t` | `TOKEN`  | `147258369` | 身份验证令牌 |
+| `-p` | `PORT`   | `3325`      | 监听端口     |
+
+## 反向代理配置
+
+### Nginx
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:3325;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 86400;
+    }
+}
+```
+
+### Caddy
+
+```
+your-domain.com {
+    reverse_proxy localhost:3325
+}
+```
+
+## 云平台部署
+
+### Railway
+
+1. Fork 项目到你的 GitHub
+2. 在 Railway 创建新项目，选择 GitHub 仓库
+3. 设置环境变量 `TOKEN` 和 `PORT`
+4. 部署完成后获取域名
+
+### Fly.io
+
+创建 `fly.toml`:
+
+```toml
+app = "echplus-server"
+primary_region = "hkg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 443
+```
+
+部署：
+
+```bash
+fly launch
+fly secrets set TOKEN=your-secret-token
+fly deploy
+```
+
+## 健康检查
+
+服务端提供健康检查端点：
+
+```bash
+curl http://your-server:3325/health
+# 返回: OK
+```
+
+## 安全建议
+
+1. **使用强密码 Token** - 避免使用默认 Token
+2. **启用 HTTPS** - 通过反向代理或云平台启用 SSL
+3. **限制访问** - 使用防火墙限制来源 IP
+4. **定期更新** - 保持服务端版本最新

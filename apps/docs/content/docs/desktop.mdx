@@ -1,0 +1,161 @@
+---
+title: 桌面端安装
+description: EchPlus 桌面客户端安装与使用指南
+---
+
+## 概述
+
+桌面客户端基于 Wails3 开发，提供图形化界面，支持 Windows、macOS 和 Linux。
+
+## 下载安装
+
+### Windows
+
+1. 从 [Releases](https://github.com/atticus6/echPlus/releases) 下载 `EchPlus-windows-amd64.exe`
+2. 双击运行安装程序
+3. 按提示完成安装
+
+### macOS
+
+1. 从 [Releases](https://github.com/atticus6/echPlus/releases) 下载：
+   - Intel 芯片：`EchPlus-darwin-amd64.dmg`
+   - Apple Silicon：`EchPlus-darwin-arm64.dmg`
+2. 打开 DMG 文件，将应用拖入 Applications 文件夹
+3. 首次运行可能需要在「系统偏好设置 → 安全性与隐私」中允许运行
+
+### Linux
+
+1. 从 [Releases](https://github.com/atticus6/echPlus/releases) 下载：
+   - `EchPlus-linux-amd64.AppImage` (推荐)
+   - `EchPlus-linux-amd64.deb` (Debian/Ubuntu)
+2. AppImage 需要添加执行权限：
+   ```bash
+   chmod +x EchPlus-linux-amd64.AppImage
+   ./EchPlus-linux-amd64.AppImage
+   ```
+
+## 快速开始
+
+1. 启动应用程序
+2. 在设置中配置服务端地址和 Token
+3. 点击「连接」按钮启动代理
+4. 配置系统代理或应用程序代理指向本地地址
+
+## 功能介绍
+
+### 主界面
+
+- **连接状态** - 显示当前代理连接状态
+- **服务器信息** - 显示当前连接的服务器
+- **流量统计** - 实时显示上传/下载流量
+
+### 设置
+
+#### 服务器配置
+
+| 选项 | 说明 |
+|------|------|
+| 服务端地址 | 格式：`domain.com:443` |
+| Token | 身份验证令牌 |
+| 服务端 IP | 可选，指定服务端 IP |
+
+#### 代理设置
+
+| 选项 | 说明 |
+|------|------|
+| 监听地址 | 本地代理监听地址，默认 `127.0.0.1:30000` |
+| 分流模式 | 全局代理 / 跳过中国大陆 / 直连 |
+
+#### 高级设置
+
+| 选项 | 说明 |
+|------|------|
+| DoH 服务器 | DNS over HTTPS 服务器地址 |
+| ECH 域名 | ECH 配置查询域名 |
+| 开机启动 | 是否开机自动启动 |
+| 自动连接 | 启动后自动连接代理 |
+
+### 系统代理
+
+桌面端支持自动配置系统代理：
+
+- **Windows** - 自动设置 IE/系统代理
+- **macOS** - 自动设置网络偏好设置
+- **Linux** - 支持 GNOME/KDE 环境
+
+## 从源码构建
+
+### 环境要求
+
+- Go 1.25+
+- Node.js 18+
+- Wails3 CLI
+
+### 安装 Wails3
+
+```bash
+go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+```
+
+### 开发模式
+
+```bash
+cd apps/desktop
+wails3 dev
+```
+
+### 构建发布版
+
+```bash
+cd apps/desktop
+wails3 build
+```
+
+构建产物在 `build/bin` 目录。
+
+### 跨平台构建
+
+```bash
+# Windows
+wails3 build -platform windows/amd64
+
+# macOS
+wails3 build -platform darwin/amd64
+wails3 build -platform darwin/arm64
+
+# Linux
+wails3 build -platform linux/amd64
+```
+
+## 常见问题
+
+### macOS 提示「无法验证开发者」
+
+1. 打开「系统偏好设置 → 安全性与隐私」
+2. 点击「仍要打开」
+
+或使用命令行：
+
+```bash
+xattr -cr /Applications/EchPlus.app
+```
+
+### Windows 防火墙提示
+
+首次运行时，Windows 防火墙可能会弹出提示，请选择「允许访问」。
+
+### Linux 无法设置系统代理
+
+确保安装了 `gsettings` (GNOME) 或相应的代理配置工具。
+
+### 连接失败
+
+1. 检查服务端地址格式是否正确
+2. 确认 Token 与服务端一致
+3. 查看日志文件排查问题
+
+### 日志位置
+
+- **Windows**: `%APPDATA%\EchPlus\logs\`
+- **macOS**: `~/Library/Application Support/EchPlus/logs/`
+- **Linux**: `~/.config/EchPlus/logs/`

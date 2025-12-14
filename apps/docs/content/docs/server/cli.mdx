@@ -1,0 +1,140 @@
+---
+title: 可执行文件
+description: 直接运行编译后的可执行文件部署 EchPlus 服务端
+---
+
+如果你不想使用 Docker，可以直接编译运行可执行文件。
+
+## 前置要求
+
+- [Go](https://go.dev/dl/) 1.21+
+
+## 编译
+
+```bash
+cd apps/server
+
+# 下载依赖
+go mod tidy
+
+# 编译
+go build -o echplus-server .
+```
+
+### 交叉编译
+
+为不同平台编译：
+
+```bash
+# Linux (amd64)
+GOOS=linux GOARCH=amd64 go build -o echplus-server-linux-amd64 .
+
+# Linux (arm64)
+GOOS=linux GOARCH=arm64 go build -o echplus-server-linux-arm64 .
+
+# Windows
+GOOS=windows GOARCH=amd64 go build -o echplus-server.exe .
+
+# macOS (Intel)
+GOOS=darwin GOARCH=amd64 go build -o echplus-server-darwin-amd64 .
+
+# macOS (Apple Silicon)
+GOOS=darwin GOARCH=arm64 go build -o echplus-server-darwin-arm64 .
+```
+
+### 优化编译
+
+生产环境建议使用优化参数：
+
+```bash
+CGO_ENABLED=0 go build -ldflags="-s -w" -o echplus-server .
+```
+
+- `-s` 去除符号表
+- `-w` 去除调试信息
+- `CGO_ENABLED=0` 静态编译，无需依赖 libc
+
+## 运行
+
+### 命令行参数
+
+```bash
+./echplus-server -t your-secret-token -p 3325
+```
+
+| 参数 | 说明         | 默认值      |
+| ---- | ------------ | ----------- |
+| `-t` | 身份验证令牌 | `147258369` |
+| `-p` | 监听端口     | `3325`      |
+
+### 环境变量
+
+也可以通过环境变量配置：
+
+```bash
+export TOKEN=your-secret-token
+export PORT=3325
+./echplus-server
+```
+
+优先级：命令行参数 > 环境变量 > 默认值
+
+## 后台运行
+
+### 使用 nohup
+
+```bash
+nohup ./echplus-server -t your-token -p 3325 > server.log 2>&1 &
+```
+
+### 使用 screen
+
+```bash
+screen -S echplus
+./echplus-server -t your-token -p 3325
+# Ctrl+A, D 分离会话
+# screen -r echplus 恢复会话
+```
+
+### 使用 systemd (推荐)
+
+创建服务文件 `/etc/systemd/system/echplus-server.service`:
+
+```ini
+[Unit]
+Description=EchPlus Server
+After=network.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+WorkingDirectory=/opt/echplus
+ExecStart=/opt/echplus/echplus-server -t your-secret-token -p 3325
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启用服务：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable echplus-server
+sudo systemctl start echplus-server
+
+# 查看状态
+sudo systemctl status echplus-server
+
+# 查看日志
+sudo journalctl -u echplus-server -f
+```
+
+## 健康检查
+
+```bash
+curl http://localhost:3325/health
+# 返回: OK
+```

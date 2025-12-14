@@ -1,0 +1,77 @@
+---
+title: Cloudflare Worker⚠️
+description: 使用 Cloudflare Worker 部署 EchPlus 服务端
+---
+
+import { Callout } from "fumadocs-ui/components/callout";
+
+<Callout type="warn">
+  Cloudflare Worker 部署方式存在封号风险，请谨慎使用！
+</Callout>
+
+## 限制说明
+
+Cloudflare Worker 有以下限制：
+
+- **CPU 时间限制**: 免费版 10ms，付费版 50ms
+- **WebSocket 连接数**: 有并发限制
+- **出站连接**: 仅支持 HTTP/HTTPS，不支持原始 TCP
+- **执行时间**: 单次请求最长 30 秒
+
+由于 EchPlus 服务端需要建立 TCP 连接到目标服务器，Cloudflare Worker 的限制可能导致部分功能无法正常工作。
+
+## 替代方案
+
+如果你需要使用 Cloudflare 的网络，建议考虑以下方案：
+
+### Cloudflare Tunnel
+
+使用 Cloudflare Tunnel 将本地或 VPS 上的服务暴露到公网：
+
+```bash
+# 安装 cloudflared
+brew install cloudflared  # macOS
+# 或下载对应平台的二进制文件
+
+# 登录
+cloudflared tunnel login
+
+# 创建隧道
+cloudflared tunnel create echplus
+
+# 配置路由
+cloudflared tunnel route dns echplus your-domain.com
+
+# 运行
+cloudflared tunnel run --url http://localhost:3325 echplus
+```
+
+配置文件 `~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <tunnel-id>
+credentials-file: ~/.cloudflared/<tunnel-id>.json
+
+ingress:
+  - hostname: your-domain.com
+    service: http://localhost:3325
+  - service: http_status:404
+```
+
+### Cloudflare Spectrum
+
+如果你有 Cloudflare Enterprise 计划，可以使用 Spectrum 代理 TCP 流量：
+
+1. 在 Cloudflare Dashboard 中启用 Spectrum
+2. 添加 TCP 应用，指向你的服务器
+3. 配置端口和协议
+
+## 未来计划
+
+我们正在探索以下方案来支持 Cloudflare Worker：
+
+- 使用 WebSocket 到 WebSocket 的代理模式
+- 利用 Cloudflare Durable Objects 维持连接状态
+- 与 Cloudflare Workers TCP Sockets (Beta) 集成
+
+如果你有相关经验或建议，欢迎在 [GitHub Issues](https://github.com/atticus6/echPlus/issues) 中讨论。
