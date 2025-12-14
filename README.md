@@ -1,83 +1,89 @@
 # EchPlus
 
-> ⚠️ **警告**: 本项目仍在开发中，功能可能不完整或存在变动。
+[中文](README_CN.md) | English
 
-EchPlus 是一个基于 ECH (Encrypted Client Hello) 技术的代理工具，支持 SOCKS5 和 HTTP 代理协议。
+> ⚠️ **Warning**: This project is still under development. Features may be incomplete or subject to change.
 
-## ✨ 特性
+EchPlus is a proxy tool based on ECH (Encrypted Client Hello) technology, supporting SOCKS5 and HTTP proxy protocols.
 
-- 🔐 基于 ECH 技术，增强隐私保护
-- 🖥️ 跨平台桌面客户端 (Windows / macOS / Linux)
-- 💻 命令行客户端，适合服务器部署
-- 🌐 支持 SOCKS5 和 HTTP 代理协议
-- 🚦 多种分流模式：全局代理 / 跳过中国大陆 / 不改变代理
-- ⚙️ 支持自定义 DoH 服务器
+## ✨ Features
 
-## 🚀 快速开始
+- 🔐 ECH-based technology for enhanced privacy protection
+- 🖥️ Cross-platform desktop client (Windows / macOS / Linux)
+- 💻 Command-line client, suitable for server deployment
+- 🌐 Supports SOCKS5 and HTTP proxy protocols
+- 🚦 Multiple routing modes: Global Proxy / Bypass China Mainland / No Proxy Change
+- ⚙️ Custom DoH server support
 
-### 命令行客户端
+## 🚀 Quick Start
+
+### Command-Line Client
 
 ```bash
-# 下载对应平台的二进制文件后运行
+# Download the binary for your platform and run
 ./echplus-client -l 127.0.0.1:30000 -f your-worker.workers.dev:443 -token your-token
 ```
 
-**参数说明：**
+**Parameters:**
 
-| 参数       | 环境变量             | 默认值                     | 说明              |
-| ---------- | -------------------- | -------------------------- | ----------------- |
-| `-l`       | `ECHPLUS_LISTEN`     | `127.0.0.1:30000`          | 代理监听地址      |
-| `-f`       | `ECHPLUS_SERVER`     | -                          | 服务端地址 (必填) |
-| `-ip`      | `ECHPLUS_SERVER_IP`  | -                          | 指定服务端 IP     |
-| `-token`   | `ECHPLUS_TOKEN`      | `147258369`                | 身份验证令牌      |
-| `-dns`     | `ECHPLUS_DNS`        | `dns.alidns.com/dns-query` | DoH 服务器        |
-| `-ech`     | `ECHPLUS_ECH_DOMAIN` | `cloudflare-ech.com`       | ECH 查询域名      |
-| `-routing` | `ECHPLUS_ROUTING`    | `global`                   | 分流模式          |
+| Parameter  | Environment Variable | Default Value              | Description              |
+| ---------- | -------------------- | -------------------------- | ------------------------ |
+| `-l`       | `ECHPLUS_LISTEN`     | `127.0.0.1:30000`          | Proxy listen address     |
+| `-f`       | `ECHPLUS_SERVER`     | -                          | Server address (required)|
+| `-ip`      | `ECHPLUS_SERVER_IP`  | -                          | Specify server IP        |
+| `-token`   | `ECHPLUS_TOKEN`      | `147258369`                | Authentication token     |
+| `-dns`     | `ECHPLUS_DNS`        | `dns.alidns.com/dns-query` | DoH server               |
+| `-ech`     | `ECHPLUS_ECH_DOMAIN` | `cloudflare-ech.com`       | ECH query domain         |
+| `-routing` | `ECHPLUS_ROUTING`    | `global`                   | Routing mode             |
 
-**分流模式：**
+**Routing Modes:**
 
-- `global` - 全局代理
-- `bypass_cn` - 跳过中国大陆
-- `none` - 不改变代理
+- `global` - Global proxy
+- `bypass_cn` - Bypass China Mainland
+- `none` - No proxy change
 
-### 桌面客户端
+### Desktop Client
 
-从 [Releases](https://github.com/atticus6/echPlus/releases) 下载对应平台的安装包。
+Download the installer for your platform from [Releases](https://github.com/atticus6/echPlus/releases).
 
-## 🛠️ 开发
+## 🛠️ Development
 
-### 环境要求
+### Requirements
 
 - Go 1.25+
 - Node.js 18+
 - Bun 1.3+
-- Wails3 (桌面客户端)
+- Wails3 (for desktop client)
 
-### 构建命令行客户端
+### Build Command-Line Client
 
 ```bash
 cd apps/client
 go build -o echplus-client .
 ```
 
-### 构建桌面客户端
+### Build Desktop Client
 
 ```bash
 cd apps/desktop
 wails3 build
 ```
 
-### 开发模式
+### Development Mode
 
 ```bash
 cd apps/desktop
 wails3 dev
 ```
 
-## 📄 许可证
+## 📚 Documentation
 
-本项目基于 [MIT License](LICENSE) 开源。
+For detailed documentation, visit: https://echplus.netlify.app/
 
-## 🤝 贡献
+## 📄 License
 
-欢迎提交 Issue 和 Pull Request！
+This project is open-sourced under the [MIT License](LICENSE).
+
+## 🤝 Contributing
+
+Issues and Pull Requests are welcome!
