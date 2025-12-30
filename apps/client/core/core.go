@@ -353,10 +353,81 @@ func (s *ProxyServer) isChinaIP(ipStr string) bool {
 	return false
 }
 
+// isPrivateIP 检查是否为内网地址
+func (s *ProxyServer) isPrivateIP(host string) bool {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// 如果不是IP地址，尝试解析域名
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return false
+		}
+		// 检查解析出的所有IP是否都是内网地址
+		for _, resolvedIP := range ips {
+			if !s.isPrivateIPAddress(resolvedIP) {
+				return false
+			}
+		}
+		return len(ips) > 0
+	}
+	return s.isPrivateIPAddress(ip)
+}
+
+// isPrivateIPAddress 检查IP地址是否为内网地址
+func (s *ProxyServer) isPrivateIPAddress(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	
+	// IPv4 内网地址范围
+	if ipv4 := ip.To4(); ipv4 != nil {
+		// 10.0.0.0/8
+		if ipv4[0] == 10 {
+			return true
+		}
+		// 172.16.0.0/12
+		if ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31 {
+			return true
+		}
+		// 192.168.0.0/16
+		if ipv4[0] == 192 && ipv4[1] == 168 {
+			return true
+		}
+		// 127.0.0.0/8 (本地回环)
+		if ipv4[0] == 127 {
+			return true
+		}
+		// 169.254.0.0/16 (链路本地地址)
+		if ipv4[0] == 169 && ipv4[1] == 254 {
+			return true
+		}
+		return false
+	}
+	
+	// IPv6 内网地址范围
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+	
+	// fc00::/7 (唯一本地地址)
+	if len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
+		return true
+	}
+	
+	return false
+}
+
 func (s *ProxyServer) shouldBypassProxy(targetHost string) bool {
 	if s.config.RoutingMode == RoutingModeNone {
 		return true
 	}
+	
+	// 检查是否为内网地址，内网地址始终直连
+	if s.isPrivateIP(targetHost) {
+		log.Printf("[分流] %s 局域网地址，强制直连", targetHost)
+		return true
+	}
+	
 	if s.config.RoutingMode == RoutingModeGlobal {
 		return false
 	}
@@ -1278,7 +1349,7 @@ func (s *ProxyServer) handleDirectConnection(conn net.Conn, target, clientAddr s
 	if err != nil {
 		sendErrorResponse(conn, mode)
 		return fmt.Errorf("直连失败: %w", err)
-	}
+		}
 	defer targetConn.Close()
 	if err := sendSuccessResponse(conn, mode); err != nil {
 		return err
