@@ -85,8 +85,20 @@ const (
 	RoutingModeNone     RoutingMode = "none"      // 直连模式
 )
 
+// HTTP 客户端配置常量
+const (
+	defaultHTTPTimeout     = 30 * time.Second
+	dohTimeout             = 10 * time.Second
+	dialTimeout            = 10 * time.Second
+	handshakeTimeout       = 10 * time.Second
+	connectionDeadline     = 30 * time.Second
+	pingInterval           = 10 * time.Second
+	readBufferSize         = 32768
+	maxContentLength       = 10 * 1024 * 1024
+)
+
 var defaultHTTPClient = &http.Client{
-	Timeout: 30 * time.Second,
+	Timeout: defaultHTTPTimeout,
 	Transport: &http.Transport{
 		MaxIdleConns:        10,
 		IdleConnTimeout:     90 * time.Second,
@@ -95,7 +107,7 @@ var defaultHTTPClient = &http.Client{
 }
 
 var dohClient = &http.Client{
-	Timeout: 10 * time.Second,
+	Timeout: dohTimeout,
 	Transport: &http.Transport{
 		MaxIdleConns:        5,
 		IdleConnTimeout:     60 * time.Second,
@@ -232,11 +244,10 @@ func (s *ProxyServer) acceptLoop() {
 func (s *ProxyServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	clientAddr := conn.RemoteAddr().String()
-	conn.SetDeadline(time.Now().Add(30 * time.Second))
+	conn.SetDeadline(time.Now().Add(connectionDeadline))
 
 	buf := make([]byte, 1)
-	n, err := conn.Read(buf)
-	if err != nil || n == 0 {
+	if n, err := conn.Read(buf); err != nil || n == 0 {
 		return
 	}
 
@@ -355,65 +366,34 @@ func (s *ProxyServer) isChinaIP(ipStr string) bool {
 
 // isPrivateIP 检查是否为内网地址
 func (s *ProxyServer) isPrivateIP(host string) bool {
-	ip := net.ParseIP(host)
-	if ip == nil {
-		// 如果不是IP地址，尝试解析域名
-		ips, err := net.LookupIP(host)
-		if err != nil {
+	if ip := net.ParseIP(host); ip != nil {
+		return isPrivateIPAddress(ip)
+	}
+	// 如果不是IP地址，尝试解析域名
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	// 检查解析出的所有IP是否都是内网地址
+	for _, resolvedIP := range ips {
+		if !isPrivateIPAddress(resolvedIP) {
 			return false
 		}
-		// 检查解析出的所有IP是否都是内网地址
-		for _, resolvedIP := range ips {
-			if !s.isPrivateIPAddress(resolvedIP) {
-				return false
-			}
-		}
-		return len(ips) > 0
 	}
-	return s.isPrivateIPAddress(ip)
+	return true
 }
 
-// isPrivateIPAddress 检查IP地址是否为内网地址
-func (s *ProxyServer) isPrivateIPAddress(ip net.IP) bool {
+// isPrivateIPAddress 检查IP地址是否为内网地址（改为包级函数，无需 receiver）
+func isPrivateIPAddress(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
-	
-	// IPv4 内网地址范围
-	if ipv4 := ip.To4(); ipv4 != nil {
-		// 10.0.0.0/8
-		if ipv4[0] == 10 {
-			return true
-		}
-		// 172.16.0.0/12
-		if ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31 {
-			return true
-		}
-		// 192.168.0.0/16
-		if ipv4[0] == 192 && ipv4[1] == 168 {
-			return true
-		}
-		// 127.0.0.0/8 (本地回环)
-		if ipv4[0] == 127 {
-			return true
-		}
-		// 169.254.0.0/16 (链路本地地址)
-		if ipv4[0] == 169 && ipv4[1] == 254 {
-			return true
-		}
-		return false
-	}
-	
-	// IPv6 内网地址范围
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+	// 使用标准库方法简化判断
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
 		return true
 	}
-	
-	// fc00::/7 (唯一本地地址)
-	if len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
-		return true
-	}
-	
+	// 169.254.0.0/16 (链路本地地址) - IsLinkLocalUnicast 已覆盖 IPv4
+	// fc00::/7 (唯一本地地址) - IsPrivate 已覆盖
 	return false
 }
 
@@ -791,31 +771,43 @@ func (s *ProxyServer) getDoHProxyClient(port string) (*http.Client, error) {
 		return client, nil
 	}
 	s.dohProxyClientMu.RUnlock()
+
 	s.dohProxyClientMu.Lock()
 	defer s.dohProxyClientMu.Unlock()
+
+	// Double-check after acquiring write lock
 	if s.dohProxyClient != nil && s.dohProxyClientPort == port {
 		return s.dohProxyClient, nil
 	}
+
 	echBytes, err := s.getECHList()
 	if err != nil {
 		return nil, fmt.Errorf("获取 ECH 配置失败: %w", err)
 	}
+
 	tlsCfg, err := buildTLSConfigWithECH("cloudflare-dns.com", echBytes)
 	if err != nil {
 		return nil, fmt.Errorf("构建 TLS 配置失败: %w", err)
 	}
-	transport := &http.Transport{TLSClientConfig: tlsCfg, MaxIdleConns: 5, IdleConnTimeout: 60 * time.Second, MaxIdleConnsPerHost: 2}
+
+	transport := &http.Transport{
+		TLSClientConfig:     tlsCfg,
+		MaxIdleConns:        5,
+		IdleConnTimeout:     60 * time.Second,
+		MaxIdleConnsPerHost: 2,
+	}
 	if s.config.ServerIP != "" {
 		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			_, p, err := net.SplitHostPort(addr)
 			if err != nil {
 				return nil, err
 			}
-			dialer := &net.Dialer{Timeout: 10 * time.Second}
+			dialer := &net.Dialer{Timeout: dialTimeout}
 			return dialer.DialContext(ctx, network, net.JoinHostPort(s.config.ServerIP, p))
 		}
 	}
-	s.dohProxyClient = &http.Client{Transport: transport, Timeout: 10 * time.Second}
+
+	s.dohProxyClient = &http.Client{Transport: transport, Timeout: dohTimeout}
 	s.dohProxyClientPort = port
 	return s.dohProxyClient, nil
 }
@@ -868,6 +860,7 @@ func (s *ProxyServer) dialWebSocketWithECH(maxRetries int) (*websocket.Conn, err
 		return nil, err
 	}
 	wsURL := fmt.Sprintf("wss://%s:%s%s", host, port, path)
+
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		echBytes, echErr := s.getECHList()
 		if echErr != nil {
@@ -877,29 +870,29 @@ func (s *ProxyServer) dialWebSocketWithECH(maxRetries int) (*websocket.Conn, err
 			}
 			return nil, echErr
 		}
+
 		tlsCfg, tlsErr := buildTLSConfigWithECH(host, echBytes)
 		if tlsErr != nil {
 			return nil, tlsErr
 		}
+
 		dialer := websocket.Dialer{
 			TLSClientConfig:  tlsCfg,
-			HandshakeTimeout: 10 * time.Second,
-			Subprotocols: func() []string {
-				if s.config.Token == "" {
-					return nil
-				}
-				return []string{s.config.Token}
-			}(),
+			HandshakeTimeout: handshakeTimeout,
+		}
+		if s.config.Token != "" {
+			dialer.Subprotocols = []string{s.config.Token}
 		}
 		if s.config.ServerIP != "" {
 			dialer.NetDial = func(network, address string) (net.Conn, error) {
-				_, port, err := net.SplitHostPort(address)
+				_, p, err := net.SplitHostPort(address)
 				if err != nil {
 					return nil, err
 				}
-				return net.DialTimeout(network, net.JoinHostPort(s.config.ServerIP, port), 10*time.Second)
+				return net.DialTimeout(network, net.JoinHostPort(s.config.ServerIP, p), dialTimeout)
 			}
 		}
+
 		wsConn, _, dialErr := dialer.Dial(wsURL, nil)
 		if dialErr != nil {
 			if strings.Contains(dialErr.Error(), "ECH") && attempt < maxRetries {
@@ -1225,10 +1218,12 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 	if err != nil {
 		targetHost = target
 	}
+
 	if s.shouldBypassProxy(targetHost) {
 		log.Printf("[分流] %s -> %s (直连，绕过代理)", clientAddr, target)
 		return s.handleDirectConnection(conn, target, clientAddr, mode, firstFrame)
 	}
+
 	log.Printf("[分流] %s -> %s (通过代理)", clientAddr, target)
 	wsConn, err := s.dialWebSocketWithECH(2)
 	if err != nil {
@@ -1236,10 +1231,14 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 		return err
 	}
 	defer wsConn.Close()
+
 	var mu sync.Mutex
-	stopPing := make(chan bool)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Ping goroutine
 	go func() {
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(pingInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -1247,22 +1246,25 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 				mu.Lock()
 				wsConn.WriteMessage(websocket.PingMessage, nil)
 				mu.Unlock()
-			case <-stopPing:
+			case <-ctx.Done():
 				return
 			}
 		}
 	}()
-	defer close(stopPing)
+
 	conn.SetDeadline(time.Time{})
+
+	// 尝试读取首帧数据
 	if firstFrame == "" && mode == modeSOCKS5 {
-		_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		buffer := make([]byte, 32768)
-		n, _ := conn.Read(buffer)
-		_ = conn.SetReadDeadline(time.Time{})
-		if n > 0 {
+		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		buffer := make([]byte, readBufferSize)
+		if n, _ := conn.Read(buffer); n > 0 {
 			firstFrame = string(buffer[:n])
 		}
+		conn.SetReadDeadline(time.Time{})
 	}
+
+	// 发送连接请求
 	connectMsg := fmt.Sprintf("CONNECT:%s|%s", target, firstFrame)
 	mu.Lock()
 	err = wsConn.WriteMessage(websocket.TextMessage, []byte(connectMsg))
@@ -1271,11 +1273,14 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 		sendErrorResponse(conn, mode)
 		return err
 	}
+
+	// 等待连接响应
 	_, msg, err := wsConn.ReadMessage()
 	if err != nil {
 		sendErrorResponse(conn, mode)
 		return err
 	}
+
 	response := string(msg)
 	if strings.HasPrefix(response, "ERROR:") {
 		sendErrorResponse(conn, mode)
@@ -1285,15 +1290,20 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 		sendErrorResponse(conn, mode)
 		return fmt.Errorf("意外响应: %s", response)
 	}
+
 	if err := sendSuccessResponse(conn, mode); err != nil {
 		return err
 	}
 	log.Printf("[代理] %s 已连接: %s", clientAddr, target)
+
+	// 双向数据转发
 	done := make(chan struct{})
 	var closeOnce sync.Once
 	closeDone := func() { closeOnce.Do(func() { close(done) }) }
+
+	// Client -> WebSocket
 	go func() {
-		buf := make([]byte, 32768)
+		buf := make([]byte, readBufferSize)
 		for {
 			n, err := conn.Read(buf)
 			if err != nil {
@@ -1312,6 +1322,8 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 			}
 		}
 	}()
+
+	// WebSocket -> Client
 	go func() {
 		for {
 			mt, msg, err := wsConn.ReadMessage()
@@ -1329,6 +1341,7 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 			}
 		}
 	}()
+
 	<-done
 	log.Printf("[代理] %s 已断开: %s", clientAddr, target)
 	return nil
@@ -1338,30 +1351,35 @@ func (s *ProxyServer) handleDirectConnection(conn net.Conn, target, clientAddr s
 	host, port, err := net.SplitHostPort(target)
 	if err != nil {
 		host = target
-		if mode == modeHTTPConnect || mode == modeHTTPProxy {
-			port = "443"
-		} else {
+		port = "443"
+		if mode == modeHTTPProxy {
 			port = "80"
 		}
 		target = net.JoinHostPort(host, port)
 	}
-	targetConn, err := net.DialTimeout("tcp", target, 10*time.Second)
+
+	targetConn, err := net.DialTimeout("tcp", target, dialTimeout)
 	if err != nil {
 		sendErrorResponse(conn, mode)
 		return fmt.Errorf("直连失败: %w", err)
-		}
+	}
 	defer targetConn.Close()
+
 	if err := sendSuccessResponse(conn, mode); err != nil {
 		return err
 	}
+
 	if firstFrame != "" {
 		if _, err := targetConn.Write([]byte(firstFrame)); err != nil {
 			return err
 		}
 	}
+
+	// 双向数据转发
 	done := make(chan struct{})
 	var closeOnce sync.Once
 	closeDone := func() { closeOnce.Do(func() { close(done) }) }
+
 	go func() {
 		io.Copy(targetConn, conn)
 		closeDone()
@@ -1370,6 +1388,7 @@ func (s *ProxyServer) handleDirectConnection(conn net.Conn, target, clientAddr s
 		io.Copy(conn, targetConn)
 		closeDone()
 	}()
+
 	<-done
 	log.Printf("[分流] %s 直连已断开: %s", clientAddr, target)
 	return nil

@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -46,17 +48,17 @@ func main() {
 	if serverAddr == "" {
 		log.Fatal("必须指定服务端地址 -f\n\n示例:\n  ./client -l 127.0.0.1:1080 -f your-worker.workers.dev:443 -token your-token")
 	}
+
 	exePath, err := os.Executable()
 	if err != nil {
-		log.Fatal("获取可执行文件路径失败: %w", err)
+		log.Fatalf("获取可执行文件路径失败: %v", err)
 	}
-	exeDir := filepath.Dir(exePath)
-	StoreDir := filepath.Join(exeDir, ".echplus")
-	
-	// 确保存储目录存在
-	if err := os.MkdirAll(StoreDir, 0755); err != nil {
+	storeDir := filepath.Join(filepath.Dir(exePath), ".echplus")
+
+	if err := os.MkdirAll(storeDir, 0755); err != nil {
 		log.Fatalf("创建存储目录失败: %v", err)
 	}
+
 	cfg := core.Config{
 		ListenAddr:  listenAddr,
 		ServerAddr:  serverAddr,
@@ -65,47 +67,59 @@ func main() {
 		DNSServer:   dnsServer,
 		ECHDomain:   echDomain,
 		RoutingMode: core.RoutingMode(routingMode),
-		StoreDir:    StoreDir,
+		StoreDir:    storeDir,
 	}
 
 	server := core.NewProxyServer(cfg)
-
 	if err := server.Start(); err != nil {
 		log.Fatalf("[启动] 服务器启动失败: %v", err)
 	}
 
-	// 启动命令行交互
-	go handleCommands(server)
+	// 使用 context 协调退出
+	ctx, cancel := context.WithCancel(context.Background())
+	go handleCommands(ctx, server, cancel)
 
 	// 等待退出信号
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
 
-	log.Println("[退出] 正在关闭服务器...")
+	select {
+	case <-sigChan:
+		log.Println("[退出] 收到退出信号，正在关闭服务器...")
+	case <-ctx.Done():
+		log.Println("[退出] 用户请求退出，正在关闭服务器...")
+	}
+
+	cancel()
 	server.Stop()
 }
 
-func handleCommands(server *core.ProxyServer) {
+func handleCommands(ctx context.Context, server *core.ProxyServer, cancel context.CancelFunc) {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Println("\n[命令] 可用命令: restart, status, routing <mode>, quit")
 
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		fmt.Print("> ")
 		input, err := reader.ReadString('\n')
 		if err != nil {
+			if err == io.EOF {
+				return
+			}
 			continue
 		}
 
-		input = strings.TrimSpace(input)
-		parts := strings.Fields(input)
+		parts := strings.Fields(strings.TrimSpace(input))
 		if len(parts) == 0 {
 			continue
 		}
 
-		cmd := strings.ToLower(parts[0])
-
-		switch cmd {
+		switch cmd := strings.ToLower(parts[0]); cmd {
 		case "restart":
 			fmt.Println("[命令] 正在重启服务器...")
 			if err := server.Restart(); err != nil {
@@ -116,14 +130,12 @@ func handleCommands(server *core.ProxyServer) {
 
 		case "status":
 			cfg := server.GetConfig()
-			running := "运行中"
+			status := "运行中"
 			if !server.IsRunning() {
-				running = "已停止"
+				status = "已停止"
 			}
-			fmt.Printf("[状态] %s\n", running)
-			fmt.Printf("  监听地址: %s\n", cfg.ListenAddr)
-			fmt.Printf("  服务端: %s\n", cfg.ServerAddr)
-			fmt.Printf("  分流模式: %s\n", cfg.RoutingMode)
+			fmt.Printf("[状态] %s\n  监听地址: %s\n  服务端: %s\n  分流模式: %s\n",
+				status, cfg.ListenAddr, cfg.ServerAddr, cfg.RoutingMode)
 
 		case "routing":
 			if len(parts) < 2 {
@@ -131,7 +143,7 @@ func handleCommands(server *core.ProxyServer) {
 				continue
 			}
 			mode := core.RoutingMode(strings.ToLower(parts[1]))
-			if mode != core.RoutingModeGlobal && mode != core.RoutingModeBypassCN && mode != core.RoutingModeNone {
+			if !isValidRoutingMode(mode) {
 				fmt.Println("[命令] 无效的分流模式，可选: global, bypass_cn, none")
 				continue
 			}
@@ -146,18 +158,26 @@ func handleCommands(server *core.ProxyServer) {
 
 		case "quit", "exit", "q":
 			fmt.Println("[命令] 正在退出...")
-			server.Stop()
-			os.Exit(0)
+			cancel()
+			return
 
 		case "help":
-			fmt.Println("[命令] 可用命令:")
-			fmt.Println("  restart        - 重启代理服务器")
-			fmt.Println("  status         - 查看服务器状态")
-			fmt.Println("  routing <mode> - 切换分流模式 (global/bypass_cn/none)")
-			fmt.Println("  quit/exit/q    - 退出程序")
+			printHelp()
 
 		default:
 			fmt.Printf("[命令] 未知命令: %s，输入 help 查看帮助\n", cmd)
 		}
 	}
+}
+
+func isValidRoutingMode(mode core.RoutingMode) bool {
+	return mode == core.RoutingModeGlobal || mode == core.RoutingModeBypassCN || mode == core.RoutingModeNone
+}
+
+func printHelp() {
+	fmt.Println(`[命令] 可用命令:
+  restart        - 重启代理服务器
+  status         - 查看服务器状态
+  routing <mode> - 切换分流模式 (global/bypass_cn/none)
+  quit/exit/q    - 退出程序`)
 }
