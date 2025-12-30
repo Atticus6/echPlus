@@ -402,10 +402,6 @@ func downloadIPList(urlStr, filePath string) error {
 func (s *ProxyServer) loadChinaIPList() error {
 
 	ipListFile := filepath.Join(s.config.StoreDir, "chn_ip.txt")
-	fmt.Println("ipListFile", ipListFile)
-	// if _, err := os.Stat(ipListFile); os.IsNotExist(err) {
-	// 	ipListFile = "chn_ip.txt"
-	// }
 	needDownload := false
 	if info, err := os.Stat(ipListFile); os.IsNotExist(err) {
 		needDownload = true

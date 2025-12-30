@@ -36,3 +36,5 @@ apps/desktop/frontend/.tanstack/
 apps/desktop/.task/
 apps/desktop/bin/
 apps/docs/.next/
+apps/client/echplus-client
+apps/client/.echplus/

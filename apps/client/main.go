@@ -50,7 +50,13 @@ func main() {
 	if err != nil {
 		log.Fatal("获取可执行文件路径失败: %w", err)
 	}
-	StoreDir := filepath.Join(exePath, ".echplus")
+	exeDir := filepath.Dir(exePath)
+	StoreDir := filepath.Join(exeDir, ".echplus")
+	
+	// 确保存储目录存在
+	if err := os.MkdirAll(StoreDir, 0755); err != nil {
+		log.Fatalf("创建存储目录失败: %v", err)
+	}
 	cfg := core.Config{
 		ListenAddr:  listenAddr,
 		ServerAddr:  serverAddr,
