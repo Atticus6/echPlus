@@ -14,18 +14,21 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atticus6/echPlus/apps/server/tunnel"
 	"github.com/gorilla/websocket"
 )
 
 var (
-	token string
-	port  int64
+	token        string
+	port         int64
+	enableTunnel bool
 )
 
 func init() {
 	// 默认值
 	defaultToken := "147258369"
 	defaultPort := int64(3325)
+	defaultTunnel := true
 
 	// 环境变量覆盖默认值
 	if envToken := os.Getenv("TOKEN"); envToken != "" {
@@ -37,8 +40,9 @@ func init() {
 		}
 	}
 
-	flag.StringVar(&token, "t", defaultToken, "Authentication Token (env: TOKEN)")
-	flag.Int64Var(&port, "p", defaultPort, "Server Port (env: PORT)")
+	flag.StringVar(&token, "token", defaultToken, "Authentication Token (env: TOKEN)")
+	flag.Int64Var(&port, "port", defaultPort, "Server Port (env: PORT)")
+	flag.BoolVar(&enableTunnel, "tunnel", defaultTunnel, "Enable Argo Tunnel (env: TUNNEL)")
 }
 
 func parseInt64(s string) (int64, error) {
@@ -55,6 +59,20 @@ var upgrader = websocket.Upgrader{
 
 func main() {
 	flag.Parse()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 启动 Argo 隧道
+	var tun *tunnel.Tunnel
+	if enableTunnel {
+		tun = tunnel.New(int(port))
+		go func() {
+			if err := tun.Start(ctx); err != nil {
+				log.Printf("[WARN] Failed to start Argo tunnel: %v", err)
+			}
+		}()
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handler)
@@ -75,15 +93,24 @@ func main() {
 		<-sigChan
 
 		log.Println("Shutting down server...")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+		cancel() // 停止隧道
 
-		if err := server.Shutdown(ctx); err != nil {
+		if tun != nil {
+			tun.Stop()
+		}
+
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer shutdownCancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
 			log.Printf("Server shutdown error: %v", err)
 		}
 	}()
 
 	log.Printf("ECH PLUS listening on :%d", port)
+	if enableTunnel {
+		log.Println("Argo tunnel enabled, waiting for URL...")
+	}
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}
