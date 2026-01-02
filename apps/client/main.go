@@ -96,7 +96,7 @@ func main() {
 
 func handleCommands(ctx context.Context, server *core.ProxyServer, cancel context.CancelFunc) {
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("\n[命令] 可用命令: restart, status, routing <mode>, quit")
+	fmt.Println("\n[命令] 可用命令: restart, status, routing <mode>, stats, quit")
 
 	for {
 		select {
@@ -156,6 +156,20 @@ func handleCommands(ctx context.Context, server *core.ProxyServer, cancel contex
 				fmt.Printf("[命令] 分流模式已切换为 %s\n", mode)
 			}
 
+		case "stats":
+			if len(parts) > 1 && parts[1] == "reset" {
+				server.GetTrafficStats().Reset()
+				fmt.Println("[统计] 流量统计已重置")
+			} else if len(parts) > 1 && parts[1] == "save" {
+				if err := server.GetTrafficStats().Save(); err != nil {
+					fmt.Printf("[统计] 保存失败: %v\n", err)
+				} else {
+					fmt.Println("[统计] 流量统计已保存")
+				}
+			} else {
+				fmt.Print(server.GetTrafficStats().PrintStats())
+			}
+
 		case "quit", "exit", "q":
 			fmt.Println("[命令] 正在退出...")
 			cancel()
@@ -179,5 +193,8 @@ func printHelp() {
   restart        - 重启代理服务器
   status         - 查看服务器状态
   routing <mode> - 切换分流模式 (global/bypass_cn/none)
+  stats          - 查看流量统计
+  stats reset    - 重置流量统计
+  stats save     - 保存流量统计到文件
   quit/exit/q    - 退出程序`)
 }

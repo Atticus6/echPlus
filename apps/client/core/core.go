@@ -57,6 +57,9 @@ type ProxyServer struct {
 	dohProxyClientMu   sync.RWMutex
 	dohProxyClient     *http.Client
 	dohProxyClientPort string
+
+	// 流量统计
+	trafficStats *TrafficStats
 }
 
 type ipRange struct {
@@ -117,7 +120,16 @@ var dohClient = &http.Client{
 
 // NewProxyServer 创建新的代理服务器
 func NewProxyServer(cfg Config) *ProxyServer {
-	return &ProxyServer{config: cfg, stopChan: make(chan struct{})}
+	ts := NewTrafficStats(cfg.StoreDir)
+	upload, download := ts.GetTotalStats()
+	if upload > 0 || download > 0 {
+		log.Printf("[统计] 已加载历史流量统计: ↑ %s  ↓ %s", FormatBytes(upload), FormatBytes(download))
+	}
+	return &ProxyServer{
+		config:       cfg,
+		stopChan:     make(chan struct{}),
+		trafficStats: ts,
+	}
 }
 
 // Start 启动代理服务器
@@ -161,6 +173,10 @@ func (s *ProxyServer) Start() error {
 	log.Printf("[代理] 使用固定 IP: %s", s.config.ServerIP)
 	s.wg.Add(1)
 	go s.acceptLoop()
+	
+	// 启动定期保存流量统计
+	go s.autoSaveStats()
+	
 	return nil
 }
 
@@ -179,6 +195,17 @@ func (s *ProxyServer) Stop() error {
 		s.listener.Close()
 	}
 	s.wg.Wait()
+	
+	// 保存流量统计
+	if s.trafficStats != nil {
+		if err := s.trafficStats.Save(); err != nil {
+			log.Printf("[统计] 保存流量统计失败: %v", err)
+		} else {
+			upload, download := s.trafficStats.GetTotalStats()
+			log.Printf("[统计] 流量统计已保存: ↑ %s  ↓ %s", FormatBytes(upload), FormatBytes(download))
+		}
+	}
+	
 	log.Printf("[代理] 服务器已停止")
 	return nil
 }
@@ -217,6 +244,28 @@ func (s *ProxyServer) GetConfig() Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.config
+}
+
+// GetTrafficStats 获取流量统计管理器
+func (s *ProxyServer) GetTrafficStats() *TrafficStats {
+	return s.trafficStats
+}
+
+// autoSaveStats 定期自动保存流量统计
+func (s *ProxyServer) autoSaveStats() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ticker.C:
+			if s.trafficStats != nil {
+				s.trafficStats.Save()
+			}
+		}
+	}
 }
 
 func (s *ProxyServer) acceptLoop() {
@@ -1219,9 +1268,12 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 		targetHost = target
 	}
 
+	// 记录连接
+	s.trafficStats.RecordConnection(targetHost)
+
 	if s.shouldBypassProxy(targetHost) {
 		log.Printf("[分流] %s -> %s (直连，绕过代理)", clientAddr, target)
-		return s.handleDirectConnection(conn, target, clientAddr, mode, firstFrame)
+		return s.handleDirectConnection(conn, target, clientAddr, mode, firstFrame, targetHost)
 	}
 
 	log.Printf("[分流] %s -> %s (通过代理)", clientAddr, target)
@@ -1274,6 +1326,11 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 		return err
 	}
 
+	// 记录首帧上传流量
+	if firstFrame != "" {
+		s.trafficStats.RecordUpload(targetHost, int64(len(firstFrame)))
+	}
+
 	// 等待连接响应
 	_, msg, err := wsConn.ReadMessage()
 	if err != nil {
@@ -1301,7 +1358,7 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 	var closeOnce sync.Once
 	closeDone := func() { closeOnce.Do(func() { close(done) }) }
 
-	// Client -> WebSocket
+	// Client -> WebSocket (上传)
 	go func() {
 		buf := make([]byte, readBufferSize)
 		for {
@@ -1313,6 +1370,7 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 				closeDone()
 				return
 			}
+			s.trafficStats.RecordUpload(targetHost, int64(n))
 			mu.Lock()
 			err = wsConn.WriteMessage(websocket.BinaryMessage, buf[:n])
 			mu.Unlock()
@@ -1323,7 +1381,7 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 		}
 	}()
 
-	// WebSocket -> Client
+	// WebSocket -> Client (下载)
 	go func() {
 		for {
 			mt, msg, err := wsConn.ReadMessage()
@@ -1335,6 +1393,7 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 				closeDone()
 				return
 			}
+			s.trafficStats.RecordDownload(targetHost, int64(len(msg)))
 			if _, err := conn.Write(msg); err != nil {
 				closeDone()
 				return
@@ -1347,7 +1406,7 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 	return nil
 }
 
-func (s *ProxyServer) handleDirectConnection(conn net.Conn, target, clientAddr string, mode int, firstFrame string) error {
+func (s *ProxyServer) handleDirectConnection(conn net.Conn, target, clientAddr string, mode int, firstFrame string, targetHost string) error {
 	host, port, err := net.SplitHostPort(target)
 	if err != nil {
 		host = target
@@ -1373,6 +1432,7 @@ func (s *ProxyServer) handleDirectConnection(conn net.Conn, target, clientAddr s
 		if _, err := targetConn.Write([]byte(firstFrame)); err != nil {
 			return err
 		}
+		s.trafficStats.RecordUpload(targetHost, int64(len(firstFrame)))
 	}
 
 	// 双向数据转发
@@ -1380,13 +1440,37 @@ func (s *ProxyServer) handleDirectConnection(conn net.Conn, target, clientAddr s
 	var closeOnce sync.Once
 	closeDone := func() { closeOnce.Do(func() { close(done) }) }
 
+	// 上传
 	go func() {
-		io.Copy(targetConn, conn)
-		closeDone()
+		buf := make([]byte, readBufferSize)
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				closeDone()
+				return
+			}
+			s.trafficStats.RecordUpload(targetHost, int64(n))
+			if _, err := targetConn.Write(buf[:n]); err != nil {
+				closeDone()
+				return
+			}
+		}
 	}()
+	// 下载
 	go func() {
-		io.Copy(conn, targetConn)
-		closeDone()
+		buf := make([]byte, readBufferSize)
+		for {
+			n, err := targetConn.Read(buf)
+			if err != nil {
+				closeDone()
+				return
+			}
+			s.trafficStats.RecordDownload(targetHost, int64(n))
+			if _, err := conn.Write(buf[:n]); err != nil {
+				closeDone()
+				return
+			}
+		}
 	}()
 
 	<-done
