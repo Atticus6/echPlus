@@ -3,7 +3,7 @@ module github.com/atticus6/echPlus/apps/desktop
 go 1.25.0
 
 require (
-	github.com/atticus6/echPlus/apps/client v0.0.0-20251213084427-9d7cf15e4d78
+	github.com/atticus6/echPlus/apps/client v0.0.0-00010101000000-000000000000
 	github.com/wailsapp/wails/v3 v3.0.0-alpha.44
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
@@ -54,3 +54,5 @@ require (
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
+
+replace github.com/atticus6/echPlus/apps/client => ../client
