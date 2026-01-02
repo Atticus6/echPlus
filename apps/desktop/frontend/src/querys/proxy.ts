@@ -5,3 +5,10 @@ export const isRunningoptions = () =>
     queryKey: ["isRunning"],
     queryFn: () => ProxyServerDesktop.IsRunning(),
   });
+
+export const trafficStatsOptions = () =>
+  queryOptions({
+    queryKey: ["trafficStats"],
+    queryFn: () => ProxyServerDesktop.GetTrafficStats(),
+    refetchInterval: 1000, // 每1秒刷新
+  });

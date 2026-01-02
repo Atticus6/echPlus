@@ -32,6 +32,15 @@ export function GetNetworkServices(): $CancellablePromise<string[]> {
     });
 }
 
+/**
+ * GetTrafficStats 获取流量统计
+ */
+export function GetTrafficStats(): $CancellablePromise<$models.TrafficStatsResponse | null> {
+    return $Call.ByID(615760542).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
 export function IsRunning(): $CancellablePromise<boolean> {
     return $Call.ByID(1480221581);
 }
@@ -64,3 +73,5 @@ export function SwitchNode(nodeId: number): $CancellablePromise<void> {
 
 // Private type creation functions
 const $$createType0 = $Create.Array($Create.Any);
+const $$createType1 = $models.TrafficStatsResponse.createFrom;
+const $$createType2 = $Create.Nullable($$createType1);

@@ -30,6 +30,13 @@ type TrafficStats struct {
 	// 全局统计
 	totalUpload   int64
 	totalDownload int64
+
+	// 速度统计
+	lastUpload     int64
+	lastDownload   int64
+	lastSpeedTime  time.Time
+	uploadSpeed    int64 // bytes/s
+	downloadSpeed  int64 // bytes/s
 }
 
 // NewTrafficStats 创建流量统计管理器
@@ -139,6 +146,29 @@ func (ts *TrafficStats) GetTotalStats() (upload, download int64) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return ts.totalUpload, ts.totalDownload
+}
+
+// GetSpeed 获取实时速度 (bytes/s)
+func (ts *TrafficStats) GetSpeed() (uploadSpeed, downloadSpeed int64) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	now := time.Now()
+	elapsed := now.Sub(ts.lastSpeedTime).Seconds()
+
+	if elapsed >= 1.0 {
+		uploadDiff := ts.totalUpload - ts.lastUpload
+		downloadDiff := ts.totalDownload - ts.lastDownload
+
+		ts.uploadSpeed = int64(float64(uploadDiff) / elapsed)
+		ts.downloadSpeed = int64(float64(downloadDiff) / elapsed)
+
+		ts.lastUpload = ts.totalUpload
+		ts.lastDownload = ts.totalDownload
+		ts.lastSpeedTime = now
+	}
+
+	return ts.uploadSpeed, ts.downloadSpeed
 }
 
 // Reset 重置所有统计

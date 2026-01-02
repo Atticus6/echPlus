@@ -81,4 +81,51 @@ func (p *ProxyServerDesktop) IsRunning() bool {
 	return s.IsRunning()
 }
 
+// GetTrafficStats 获取流量统计
+func (p *ProxyServerDesktop) GetTrafficStats() *TrafficStatsResponse {
+	stats := s.GetTrafficStats()
+	if stats == nil {
+		return &TrafficStatsResponse{}
+	}
+	
+	upload, download := stats.GetTotalStats()
+	uploadSpeed, downloadSpeed := stats.GetSpeed()
+	topSites := stats.GetTopSites(10)
+	
+	sites := make([]SiteStatsResponse, 0, len(topSites))
+	for _, site := range topSites {
+		sites = append(sites, SiteStatsResponse{
+			Host:        site.Host,
+			Upload:      site.Upload,
+			Download:    site.Download,
+			Connections: site.Connections,
+		})
+	}
+	
+	return &TrafficStatsResponse{
+		TotalUpload:   upload,
+		TotalDownload: download,
+		UploadSpeed:   uploadSpeed,
+		DownloadSpeed: downloadSpeed,
+		Sites:         sites,
+	}
+}
+
+// TrafficStatsResponse 流量统计响应
+type TrafficStatsResponse struct {
+	TotalUpload   int64               `json:"totalUpload"`
+	TotalDownload int64               `json:"totalDownload"`
+	UploadSpeed   int64               `json:"uploadSpeed"`   // bytes/s
+	DownloadSpeed int64               `json:"downloadSpeed"` // bytes/s
+	Sites         []SiteStatsResponse `json:"sites"`
+}
+
+// SiteStatsResponse 站点统计响应
+type SiteStatsResponse struct {
+	Host        string `json:"host"`
+	Upload      int64  `json:"upload"`
+	Download    int64  `json:"download"`
+	Connections int64  `json:"connections"`
+}
+
 var ProxyServerInstance = ProxyServerDesktop{}

@@ -13,5 +13,7 @@ export {
 };
 
 export {
-    ProxyConfig
+    ProxyConfig,
+    SiteStatsResponse,
+    TrafficStatsResponse
 } from "./models.js";

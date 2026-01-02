@@ -55,6 +55,7 @@ import { configOptions } from "@/querys/config";
 import { ConfigType } from "bindings/github.com/atticus6/echPlus/apps/desktop/config/models";
 import { RoutingMode } from "../../bindings/github.com/atticus6/echPlus/apps/client/core/models";
 import { isRunningoptions } from "@/querys/proxy";
+import { TrafficStats } from "@/components/TrafficStats";
 
 const formSchema = z.object({
   name: z.string().min(1, "名称不能为空"),
@@ -127,7 +128,7 @@ function RouteComponent() {
   };
 
   return (
-    <div className="h-screen flex justify-center items-center">
+    <div className="h-full flex justify-center items-center">
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
@@ -244,6 +245,10 @@ function RouteComponent() {
               });
             }}
           />
+          
+          {/* 流量统计 */}
+          {isRunning && <TrafficStats />}
+          
           <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
             {[
               { value: RoutingMode.RoutingModeGlobal, label: "全局" },

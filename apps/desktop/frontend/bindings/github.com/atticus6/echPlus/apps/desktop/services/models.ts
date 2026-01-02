@@ -32,3 +32,95 @@ export class ProxyConfig {
         return new ProxyConfig($$parsedSource as Partial<ProxyConfig>);
     }
 }
+
+/**
+ * SiteStatsResponse 站点统计响应
+ */
+export class SiteStatsResponse {
+    "host": string;
+    "upload": number;
+    "download": number;
+    "connections": number;
+
+    /** Creates a new SiteStatsResponse instance. */
+    constructor($$source: Partial<SiteStatsResponse> = {}) {
+        if (!("host" in $$source)) {
+            this["host"] = "";
+        }
+        if (!("upload" in $$source)) {
+            this["upload"] = 0;
+        }
+        if (!("download" in $$source)) {
+            this["download"] = 0;
+        }
+        if (!("connections" in $$source)) {
+            this["connections"] = 0;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SiteStatsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SiteStatsResponse {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SiteStatsResponse($$parsedSource as Partial<SiteStatsResponse>);
+    }
+}
+
+/**
+ * TrafficStatsResponse 流量统计响应
+ */
+export class TrafficStatsResponse {
+    "totalUpload": number;
+    "totalDownload": number;
+
+    /**
+     * bytes/s
+     */
+    "uploadSpeed": number;
+
+    /**
+     * bytes/s
+     */
+    "downloadSpeed": number;
+    "sites": SiteStatsResponse[];
+
+    /** Creates a new TrafficStatsResponse instance. */
+    constructor($$source: Partial<TrafficStatsResponse> = {}) {
+        if (!("totalUpload" in $$source)) {
+            this["totalUpload"] = 0;
+        }
+        if (!("totalDownload" in $$source)) {
+            this["totalDownload"] = 0;
+        }
+        if (!("uploadSpeed" in $$source)) {
+            this["uploadSpeed"] = 0;
+        }
+        if (!("downloadSpeed" in $$source)) {
+            this["downloadSpeed"] = 0;
+        }
+        if (!("sites" in $$source)) {
+            this["sites"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new TrafficStatsResponse instance from a string or object.
+     */
+    static createFrom($$source: any = {}): TrafficStatsResponse {
+        const $$createField4_0 = $$createType1;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("sites" in $$parsedSource) {
+            $$parsedSource["sites"] = $$createField4_0($$parsedSource["sites"]);
+        }
+        return new TrafficStatsResponse($$parsedSource as Partial<TrafficStatsResponse>);
+    }
+}
+
+// Private type creation functions
+const $$createType0 = SiteStatsResponse.createFrom;
+const $$createType1 = $Create.Array($$createType0);
