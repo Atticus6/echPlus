@@ -1,11 +1,12 @@
 import { cn } from "@/lib/utils";
-import { Home, ChartBar, Server, Settings } from "lucide-react";
+import { Home, ChartBar, Server, Settings, ScrollText } from "lucide-react";
 import { Link, useLocation } from "@tanstack/react-router";
 
 const menuItems = [
   { icon: Home, label: "首页", path: "/" },
   { icon: ChartBar, label: "流量统计", path: "/stats" },
   { icon: Server, label: "节点管理", path: "/nodes" },
+  { icon: ScrollText, label: "日志", path: "/logs" },
   { icon: Settings, label: "设置", path: "/settings" },
 ];
 

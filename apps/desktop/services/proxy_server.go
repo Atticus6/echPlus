@@ -13,6 +13,8 @@ import (
 var s *core.ProxyServer
 
 func init() {
+	// 设置 client 日志处理器，将日志输出到 desktop
+	core.SetLogHandler(&ClientLogHandler{})
 	s = core.NewProxyServer(config.ConfigState.GetproxyConfig())
 }
 

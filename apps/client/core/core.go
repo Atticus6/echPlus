@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -90,14 +89,14 @@ const (
 
 // HTTP 客户端配置常量
 const (
-	defaultHTTPTimeout     = 30 * time.Second
-	dohTimeout             = 10 * time.Second
-	dialTimeout            = 10 * time.Second
-	handshakeTimeout       = 10 * time.Second
-	connectionDeadline     = 30 * time.Second
-	pingInterval           = 10 * time.Second
-	readBufferSize         = 32768
-	maxContentLength       = 10 * 1024 * 1024
+	defaultHTTPTimeout = 30 * time.Second
+	dohTimeout         = 10 * time.Second
+	dialTimeout        = 10 * time.Second
+	handshakeTimeout   = 10 * time.Second
+	connectionDeadline = 30 * time.Second
+	pingInterval       = 10 * time.Second
+	readBufferSize     = 32768
+	maxContentLength   = 10 * 1024 * 1024
 )
 
 var defaultHTTPClient = &http.Client{
@@ -123,7 +122,7 @@ func NewProxyServer(cfg Config) *ProxyServer {
 	ts := NewTrafficStats(cfg.StoreDir)
 	upload, download := ts.GetTotalStats()
 	if upload > 0 || download > 0 {
-		log.Printf("[统计] 已加载历史流量统计: ↑ %s  ↓ %s", FormatBytes(upload), FormatBytes(download))
+		LogInfo("[统计] 已加载历史流量统计: ↑ %s  ↓ %s", FormatBytes(upload), FormatBytes(download))
 	}
 	return &ProxyServer{
 		config:       cfg,
@@ -143,7 +142,7 @@ func (s *ProxyServer) Start() error {
 	s.stopChan = make(chan struct{})
 	s.mu.Unlock()
 
-	log.Printf("[启动] 正在获取 ECH 配置...")
+	LogInfo("[启动] 正在获取 ECH 配置...")
 	if err := s.prepareECH(); err != nil {
 		s.mu.Lock()
 		s.running = false
@@ -152,7 +151,7 @@ func (s *ProxyServer) Start() error {
 	}
 
 	if err := s.loadRoutingData(); err != nil {
-		log.Printf("[警告] 加载分流数据失败: %v", err)
+		LogError("[警告] 加载分流数据失败: %v", err)
 	}
 
 	listener, err := net.Listen("tcp", s.config.ListenAddr)
@@ -164,19 +163,19 @@ func (s *ProxyServer) Start() error {
 	}
 	s.listener = listener
 
-	log.Printf("[代理] 服务器启动: %s (支持 SOCKS5 和 HTTP)", s.config.ListenAddr)
-	log.Printf("[代理] 后端服务器: %s", s.config.ServerAddr)
+	LogInfo("[代理] 服务器启动: %s (支持 SOCKS5 和 HTTP)", s.config.ListenAddr)
+	LogInfo("[代理] 后端服务器: %s", s.config.ServerAddr)
 	if s.config.ServerIP == "" {
 		s.config.ServerIP = "www.visa.com"
 	}
 
-	log.Printf("[代理] 使用固定 IP: %s", s.config.ServerIP)
+	LogInfo("[代理] 使用固定 IP: %s", s.config.ServerIP)
 	s.wg.Add(1)
 	go s.acceptLoop()
-	
+
 	// 启动定期保存流量统计
 	go s.autoSaveStats()
-	
+
 	return nil
 }
 
@@ -195,24 +194,24 @@ func (s *ProxyServer) Stop() error {
 		s.listener.Close()
 	}
 	s.wg.Wait()
-	
+
 	// 保存流量统计
 	if s.trafficStats != nil {
 		if err := s.trafficStats.Save(); err != nil {
-			log.Printf("[统计] 保存流量统计失败: %v", err)
+			LogError("[统计] 保存流量统计失败: %v", err)
 		} else {
 			upload, download := s.trafficStats.GetTotalStats()
-			log.Printf("[统计] 流量统计已保存: ↑ %s  ↓ %s", FormatBytes(upload), FormatBytes(download))
+			LogInfo("[统计] 流量统计已保存: ↑ %s  ↓ %s", FormatBytes(upload), FormatBytes(download))
 		}
 	}
-	
-	log.Printf("[代理] 服务器已停止")
+
+	LogInfo("[代理] 服务器已停止")
 	return nil
 }
 
 // Restart 重启代理服务器
 func (s *ProxyServer) Restart() error {
-	log.Printf("[代理] 正在重启服务器...")
+	LogInfo("[代理] 正在重启服务器...")
 	if err := s.Stop(); err != nil && err.Error() != "服务器未运行" {
 		return fmt.Errorf("停止服务器失败: %w", err)
 	}
@@ -255,7 +254,7 @@ func (s *ProxyServer) GetTrafficStats() *TrafficStats {
 func (s *ProxyServer) autoSaveStats() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-s.stopChan:
@@ -282,7 +281,7 @@ func (s *ProxyServer) acceptLoop() {
 			case <-s.stopChan:
 				return
 			default:
-				log.Printf("[代理] 接受连接失败: %v", err)
+				LogError("[代理] 接受连接失败: %v", err)
 				continue
 			}
 		}
@@ -306,40 +305,40 @@ func (s *ProxyServer) handleConnection(conn net.Conn) {
 	case 'C', 'G', 'P', 'H', 'D', 'O', 'T':
 		s.handleHTTP(conn, clientAddr, buf[0])
 	default:
-		log.Printf("[代理] %s 未知协议: 0x%02x", clientAddr, buf[0])
+		LogInfo("[代理] %s 未知协议: 0x%02x", clientAddr, buf[0])
 	}
 }
 
 func (s *ProxyServer) loadRoutingData() error {
 	switch s.config.RoutingMode {
 	case RoutingModeBypassCN:
-		log.Printf("[启动] 分流模式: 跳过中国大陆，正在加载中国IP列表...")
+		LogInfo("[启动] 分流模式: 跳过中国大陆，正在加载中国IP列表...")
 		ipv4Count, ipv6Count := 0, 0
 		if err := s.loadChinaIPList(); err != nil {
-			log.Printf("[警告] 加载中国IPv4列表失败: %v", err)
+			LogError("[警告] 加载中国IPv4列表失败: %v", err)
 		} else {
 			s.chinaIPRangesMu.RLock()
 			ipv4Count = len(s.chinaIPRanges)
 			s.chinaIPRangesMu.RUnlock()
 		}
 		if err := s.loadChinaIPV6List(); err != nil {
-			log.Printf("[警告] 加载中国IPv6列表失败: %v", err)
+			LogError("[警告] 加载中国IPv6列表失败: %v", err)
 		} else {
 			s.chinaIPV6RangesMu.RLock()
 			ipv6Count = len(s.chinaIPV6Ranges)
 			s.chinaIPV6RangesMu.RUnlock()
 		}
 		if ipv4Count > 0 || ipv6Count > 0 {
-			log.Printf("[启动] 已加载 %d 个中国IPv4段, %d 个中国IPv6段", ipv4Count, ipv6Count)
+			LogInfo("[启动] 已加载 %d 个中国IPv4段, %d 个中国IPv6段", ipv4Count, ipv6Count)
 		} else {
-			log.Printf("[警告] 未加载到任何中国IP列表，将使用默认规则")
+			LogError("[警告] 未加载到任何中国IP列表，将使用默认规则")
 		}
 	case RoutingModeGlobal:
-		log.Printf("[启动] 分流模式: 全局代理")
+		LogInfo("[启动] 分流模式: 全局代理")
 	case RoutingModeNone:
-		log.Printf("[启动] 分流模式: 不改变代理（直连模式）")
+		LogInfo("[启动] 分流模式: 不改变代理（直连模式）")
 	default:
-		log.Printf("[警告] 未知的分流模式: %s，使用默认模式 global", s.config.RoutingMode)
+		LogError("[警告] 未知的分流模式: %s，使用默认模式 global", s.config.RoutingMode)
 		s.config.RoutingMode = RoutingModeGlobal
 	}
 	return nil
@@ -450,13 +449,13 @@ func (s *ProxyServer) shouldBypassProxy(targetHost string) bool {
 	if s.config.RoutingMode == RoutingModeNone {
 		return true
 	}
-	
+
 	// 检查是否为内网地址，内网地址始终直连
 	if s.isPrivateIP(targetHost) {
-		log.Printf("[分流] %s 局域网地址，强制直连", targetHost)
+		LogInfo("[分流] %s 局域网地址，强制直连", targetHost)
 		return true
 	}
-	
+
 	if s.config.RoutingMode == RoutingModeGlobal {
 		return false
 	}
@@ -479,7 +478,7 @@ func (s *ProxyServer) shouldBypassProxy(targetHost string) bool {
 }
 
 func downloadIPList(urlStr, filePath string) error {
-	log.Printf("[下载] 正在下载 IP 列表: %s", urlStr)
+	LogInfo("[下载] 正在下载 IP 列表: %s", urlStr)
 	resp, err := defaultHTTPClient.Get(urlStr)
 	if err != nil {
 		return fmt.Errorf("下载失败: %w", err)
@@ -495,7 +494,7 @@ func downloadIPList(urlStr, filePath string) error {
 	if err := os.WriteFile(filePath, content, 0644); err != nil {
 		return fmt.Errorf("保存文件失败: %w", err)
 	}
-	log.Printf("[下载] 已保存到: %s", filePath)
+	LogInfo("[下载] 已保存到: %s", filePath)
 	return nil
 }
 
@@ -505,10 +504,10 @@ func (s *ProxyServer) loadChinaIPList() error {
 	needDownload := false
 	if info, err := os.Stat(ipListFile); os.IsNotExist(err) {
 		needDownload = true
-		log.Printf("[加载] IPv4 列表文件不存在，将自动下载")
+		LogInfo("[加载] IPv4 列表文件不存在，将自动下载")
 	} else if info.Size() == 0 {
 		needDownload = true
-		log.Printf("[加载] IPv4 列表文件为空，将自动下载")
+		LogInfo("[加载] IPv4 列表文件为空，将自动下载")
 	}
 	if needDownload {
 		urlStr := "https://raw.githubusercontent.com/mayaxcn/china-ip-list/refs/heads/master/chn_ip.txt"
@@ -564,21 +563,21 @@ func (s *ProxyServer) loadChinaIPV6List() error {
 	needDownload := false
 	if info, err := os.Stat(ipListFile); os.IsNotExist(err) {
 		needDownload = true
-		log.Printf("[加载] IPv6 列表文件不存在，将自动下载")
+		LogInfo("[加载] IPv6 列表文件不存在，将自动下载")
 	} else if info.Size() == 0 {
 		needDownload = true
-		log.Printf("[加载] IPv6 列表文件为空，将自动下载")
+		LogInfo("[加载] IPv6 列表文件为空，将自动下载")
 	}
 	if needDownload {
 		urlStr := "https://raw.githubusercontent.com/mayaxcn/china-ip-list/refs/heads/master/chn_ip_v6.txt"
 		if err := downloadIPList(urlStr, ipListFile); err != nil {
-			log.Printf("[警告] 自动下载 IPv6 列表失败: %v，将跳过 IPv6 支持", err)
+			LogError("[警告] 自动下载 IPv6 列表失败: %v，将跳过 IPv6 支持", err)
 			return nil
 		}
 	}
 	file, err := os.Open(ipListFile)
 	if err != nil {
-		log.Printf("[警告] 打开 IPv6 IP列表文件失败: %v，将跳过 IPv6 支持", err)
+		LogError("[警告] 打开 IPv6 IP列表文件失败: %v，将跳过 IPv6 支持", err)
 		return nil
 	}
 	defer file.Close()
@@ -638,12 +637,12 @@ func (s *ProxyServer) prepareECH() error {
 	s.echListMu.Lock()
 	s.echList = raw
 	s.echListMu.Unlock()
-	log.Printf("[ECH] 配置已加载，长度: %d 字节", len(raw))
+	LogInfo("[ECH] 配置已加载，长度: %d 字节", len(raw))
 	return nil
 }
 
 func (s *ProxyServer) refreshECH() error {
-	log.Printf("[ECH] 刷新配置...")
+	LogInfo("[ECH] 刷新配置...")
 	return s.prepareECH()
 }
 
@@ -945,7 +944,7 @@ func (s *ProxyServer) dialWebSocketWithECH(maxRetries int) (*websocket.Conn, err
 		wsConn, _, dialErr := dialer.Dial(wsURL, nil)
 		if dialErr != nil {
 			if strings.Contains(dialErr.Error(), "ECH") && attempt < maxRetries {
-				log.Printf("[ECH] 连接失败，尝试刷新配置 (%d/%d)", attempt, maxRetries)
+				LogInfo("[ECH] 连接失败，尝试刷新配置 (%d/%d)", attempt, maxRetries)
 				s.refreshECH()
 				time.Sleep(time.Second)
 				continue
@@ -973,7 +972,7 @@ func isNormalCloseError(err error) bool {
 
 func (s *ProxyServer) handleSOCKS5(conn net.Conn, clientAddr string, firstByte byte) {
 	if firstByte != 0x05 {
-		log.Printf("[SOCKS5] %s 版本错误: 0x%02x", clientAddr, firstByte)
+		LogInfo("[SOCKS5] %s 版本错误: 0x%02x", clientAddr, firstByte)
 		return
 	}
 	buf := make([]byte, 1)
@@ -1038,10 +1037,10 @@ func (s *ProxyServer) handleSOCKS5(conn net.Conn, clientAddr string, firstByte b
 		} else {
 			target = fmt.Sprintf("%s:%d", host, port)
 		}
-		log.Printf("[SOCKS5] %s -> %s", clientAddr, target)
+		LogInfo("[SOCKS5] %s -> %s", clientAddr, target)
 		if err := s.handleTunnel(conn, target, clientAddr, modeSOCKS5, ""); err != nil {
 			if !isNormalCloseError(err) {
-				log.Printf("[SOCKS5] %s 代理失败: %v", clientAddr, err)
+				LogError("[SOCKS5] %s 代理失败: %v", clientAddr, err)
 			}
 		}
 	case 0x03:
@@ -1054,19 +1053,19 @@ func (s *ProxyServer) handleSOCKS5(conn net.Conn, clientAddr string, firstByte b
 func (s *ProxyServer) handleUDPAssociate(tcpConn net.Conn, clientAddr string) {
 	udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 	if err != nil {
-		log.Printf("[UDP] %s 解析地址失败: %v", clientAddr, err)
+		LogError("[UDP] %s 解析地址失败: %v", clientAddr, err)
 		tcpConn.Write([]byte{0x05, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 		return
 	}
 	udpConn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
-		log.Printf("[UDP] %s 监听失败: %v", clientAddr, err)
+		LogError("[UDP] %s 监听失败: %v", clientAddr, err)
 		tcpConn.Write([]byte{0x05, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 		return
 	}
 	localAddr := udpConn.LocalAddr().(*net.UDPAddr)
 	port := localAddr.Port
-	log.Printf("[UDP] %s UDP ASSOCIATE 监听端口: %d", clientAddr, port)
+	LogInfo("[UDP] %s UDP ASSOCIATE 监听端口: %d", clientAddr, port)
 	response := []byte{0x05, 0x00, 0x00, 0x01}
 	response = append(response, 127, 0, 0, 1)
 	response = append(response, byte(port>>8), byte(port&0xff))
@@ -1080,7 +1079,7 @@ func (s *ProxyServer) handleUDPAssociate(tcpConn net.Conn, clientAddr string) {
 	tcpConn.Read(buf)
 	close(stopChan)
 	udpConn.Close()
-	log.Printf("[UDP] %s UDP ASSOCIATE 连接关闭", clientAddr)
+	LogInfo("[UDP] %s UDP ASSOCIATE 连接关闭", clientAddr)
 }
 
 func (s *ProxyServer) handleUDPRelay(udpConn *net.UDPConn, clientAddr string, stopChan chan struct{}) {
@@ -1141,10 +1140,10 @@ func (s *ProxyServer) handleUDPRelay(udpConn *net.UDPConn, clientAddr string, st
 		udpData := data[headerLen:]
 		target := fmt.Sprintf("%s:%d", dstHost, dstPort)
 		if dstPort == 53 {
-			log.Printf("[UDP-DNS] %s -> %s (DoH 查询)", clientAddr, target)
+			LogInfo("[UDP-DNS] %s -> %s (DoH 查询)", clientAddr, target)
 			go s.handleDNSQuery(udpConn, addr, udpData, data[:headerLen])
 		} else {
-			log.Printf("[UDP] %s -> %s (暂不支持非 DNS UDP)", clientAddr, target)
+			LogInfo("[UDP] %s -> %s (暂不支持非 DNS UDP)", clientAddr, target)
 		}
 	}
 }
@@ -1152,7 +1151,7 @@ func (s *ProxyServer) handleUDPRelay(udpConn *net.UDPConn, clientAddr string, st
 func (s *ProxyServer) handleDNSQuery(udpConn *net.UDPConn, clientAddr *net.UDPAddr, dnsQuery []byte, socks5Header []byte) {
 	dnsResponse, err := s.queryDoHForProxy(dnsQuery)
 	if err != nil {
-		log.Printf("[UDP-DNS] DoH 查询失败: %v", err)
+		LogError("[UDP-DNS] DoH 查询失败: %v", err)
 		return
 	}
 	response := make([]byte, 0, len(socks5Header)+len(dnsResponse))
@@ -1160,10 +1159,10 @@ func (s *ProxyServer) handleDNSQuery(udpConn *net.UDPConn, clientAddr *net.UDPAd
 	response = append(response, dnsResponse...)
 	_, err = udpConn.WriteToUDP(response, clientAddr)
 	if err != nil {
-		log.Printf("[UDP-DNS] 发送响应失败: %v", err)
+		LogError("[UDP-DNS] 发送响应失败: %v", err)
 		return
 	}
-	log.Printf("[UDP-DNS] DoH 查询成功，响应 %d 字节", len(dnsResponse))
+	LogInfo("[UDP-DNS] DoH 查询成功，响应 %d 字节", len(dnsResponse))
 }
 
 func (s *ProxyServer) handleHTTP(conn net.Conn, clientAddr string, firstByte byte) {
@@ -1199,14 +1198,14 @@ func (s *ProxyServer) handleHTTP(conn net.Conn, clientAddr string, firstByte byt
 	}
 	switch method {
 	case "CONNECT":
-		log.Printf("[HTTP-CONNECT] %s -> %s", clientAddr, requestURL)
+		LogInfo("[HTTP-CONNECT] %s -> %s", clientAddr, requestURL)
 		if err := s.handleTunnel(conn, requestURL, clientAddr, modeHTTPConnect, ""); err != nil {
 			if !isNormalCloseError(err) {
-				log.Printf("[HTTP-CONNECT] %s 代理失败: %v", clientAddr, err)
+				LogError("[HTTP-CONNECT] %s 代理失败: %v", clientAddr, err)
 			}
 		}
 	case "GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH", "TRACE":
-		log.Printf("[HTTP-%s] %s -> %s", method, clientAddr, requestURL)
+		LogInfo("[HTTP-%s] %s -> %s", method, clientAddr, requestURL)
 		var target, path string
 		if strings.HasPrefix(requestURL, "http://") {
 			urlWithoutScheme := strings.TrimPrefix(requestURL, "http://")
@@ -1253,11 +1252,11 @@ func (s *ProxyServer) handleHTTP(conn net.Conn, clientAddr string, firstByte byt
 		firstFrame := requestBuilder.String()
 		if err := s.handleTunnel(conn, target, clientAddr, modeHTTPProxy, firstFrame); err != nil {
 			if !isNormalCloseError(err) {
-				log.Printf("[HTTP-%s] %s 代理失败: %v", method, clientAddr, err)
+				LogError("[HTTP-%s] %s 代理失败: %v", method, clientAddr, err)
 			}
 		}
 	default:
-		log.Printf("[HTTP] %s 不支持的方法: %s", clientAddr, method)
+		LogInfo("[HTTP] %s 不支持的方法: %s", clientAddr, method)
 		conn.Write([]byte("HTTP/1.1 405 Method Not Allowed\r\n\r\n"))
 	}
 }
@@ -1272,11 +1271,11 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 	s.trafficStats.RecordConnection(targetHost)
 
 	if s.shouldBypassProxy(targetHost) {
-		log.Printf("[分流] %s -> %s (直连，绕过代理)", clientAddr, target)
+		LogInfo("[分流] %s -> %s (直连，绕过代理)", clientAddr, target)
 		return s.handleDirectConnection(conn, target, clientAddr, mode, firstFrame, targetHost)
 	}
 
-	log.Printf("[分流] %s -> %s (通过代理)", clientAddr, target)
+	LogInfo("[分流] %s -> %s (通过代理)", clientAddr, target)
 	wsConn, err := s.dialWebSocketWithECH(2)
 	if err != nil {
 		sendErrorResponse(conn, mode)
@@ -1351,7 +1350,7 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 	if err := sendSuccessResponse(conn, mode); err != nil {
 		return err
 	}
-	log.Printf("[代理] %s 已连接: %s", clientAddr, target)
+	LogInfo("[代理] %s 已连接: %s", clientAddr, target)
 
 	// 双向数据转发
 	done := make(chan struct{})
@@ -1402,7 +1401,7 @@ func (s *ProxyServer) handleTunnel(conn net.Conn, target, clientAddr string, mod
 	}()
 
 	<-done
-	log.Printf("[代理] %s 已断开: %s", clientAddr, target)
+	LogInfo("[代理] %s 已断开: %s", clientAddr, target)
 	return nil
 }
 
@@ -1474,7 +1473,7 @@ func (s *ProxyServer) handleDirectConnection(conn net.Conn, target, clientAddr s
 	}()
 
 	<-done
-	log.Printf("[分流] %s 直连已断开: %s", clientAddr, target)
+	LogInfo("[分流] %s 直连已断开: %s", clientAddr, target)
 	return nil
 }
 

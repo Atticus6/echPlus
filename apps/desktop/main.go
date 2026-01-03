@@ -4,6 +4,7 @@ import (
 	"embed"
 	_ "embed"
 	"log"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -58,6 +59,7 @@ func main() {
 			application.NewService(&services.NodeService{}),
 			application.NewService(&services.ProxyServerInstance),
 			application.NewService(&services.ConfigService{}),
+			application.NewService(&services.LogService{}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -65,6 +67,7 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
+		LogLevel: slog.LevelError,
 		OnShutdown: func() {
 			logger.Info("应用程序正在关闭...")
 			// 保存配置到文件

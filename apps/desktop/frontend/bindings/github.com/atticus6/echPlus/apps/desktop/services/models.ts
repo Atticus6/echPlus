@@ -5,6 +5,64 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+export class LogEntry {
+    "time": string;
+    "level": string;
+    "message": string;
+
+    /** Creates a new LogEntry instance. */
+    constructor($$source: Partial<LogEntry> = {}) {
+        if (!("time" in $$source)) {
+            this["time"] = "";
+        }
+        if (!("level" in $$source)) {
+            this["level"] = "";
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LogEntry instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LogEntry {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LogEntry($$parsedSource as Partial<LogEntry>);
+    }
+}
+
+export class LogFile {
+    "name": string;
+    "date": string;
+    "type": string;
+
+    /** Creates a new LogFile instance. */
+    constructor($$source: Partial<LogFile> = {}) {
+        if (!("name" in $$source)) {
+            this["name"] = "";
+        }
+        if (!("date" in $$source)) {
+            this["date"] = "";
+        }
+        if (!("type" in $$source)) {
+            this["type"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LogFile instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LogFile {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LogFile($$parsedSource as Partial<LogFile>);
+    }
+}
+
 /**
  * ProxyConfig 代理配置
  */
