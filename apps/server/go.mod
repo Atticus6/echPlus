@@ -3,6 +3,7 @@ module github.com/atticus6/echPlus/apps/server
 go 1.25.0
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/wizzard0/trycloudflared v0.0.0-20250602072109-870ef804aa3b
 )

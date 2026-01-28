@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -15,24 +16,26 @@ import (
 	"time"
 
 	"github.com/atticus6/echPlus/apps/server/tunnel"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
 var (
-	token        string
+	uuidStr      string
 	port         int64
 	enableTunnel bool
+	userUUID     uuid.UUID
 )
 
 func init() {
 	// 默认值
-	defaultToken := "147258369"
+	defaultUUID := "147258369-1234-5678-9abc-def012345678"
 	defaultPort := int64(3325)
 	defaultTunnel := true
 
 	// 环境变量覆盖默认值
-	if envToken := os.Getenv("TOKEN"); envToken != "" {
-		defaultToken = envToken
+	if envUUID := os.Getenv("UUID"); envUUID != "" {
+		defaultUUID = envUUID
 	}
 	if envPort := os.Getenv("PORT"); envPort != "" {
 		if p, err := parseInt64(envPort); err == nil {
@@ -40,7 +43,7 @@ func init() {
 		}
 	}
 
-	flag.StringVar(&token, "token", defaultToken, "Authentication Token (env: TOKEN)")
+	flag.StringVar(&uuidStr, "uuid", defaultUUID, "VLESS UUID (env: UUID)")
 	flag.Int64Var(&port, "port", defaultPort, "Server Port (env: PORT)")
 	flag.BoolVar(&enableTunnel, "tunnel", defaultTunnel, "Enable Argo Tunnel (env: TUNNEL)")
 }
@@ -59,6 +62,13 @@ var upgrader = websocket.Upgrader{
 
 func main() {
 	flag.Parse()
+
+	// 解析 UUID
+	var err error
+	userUUID, err = uuid.Parse(uuidStr)
+	if err != nil {
+		log.Fatalf("Invalid UUID: %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -93,7 +103,7 @@ func main() {
 		<-sigChan
 
 		log.Println("Shutting down server...")
-		cancel() // 停止隧道
+		cancel()
 
 		if tun != nil {
 			tun.Stop()
@@ -107,7 +117,8 @@ func main() {
 		}
 	}()
 
-	log.Printf("ECH PLUS listening on :%d", port)
+	log.Printf("VLESS Server listening on :%d", port)
+	log.Printf("UUID: %s", userUUID.String())
 	if enableTunnel {
 		log.Println("Argo tunnel enabled, waiting for URL...")
 	}
@@ -135,29 +146,36 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	protocol := r.Header.Get("Sec-WebSocket-Protocol")
-	if token != "" && protocol != token {
-		log.Printf("[WARN] Unauthorized: expected %s, got %s", token, protocol)
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	var respHeader http.Header
-	if token != "" {
-		respHeader = http.Header{"Sec-WebSocket-Protocol": {token}}
-	}
-
-	ws, err := upgrader.Upgrade(w, r, respHeader)
+	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[ERROR] WebSocket upgrade failed: %v", err)
 		return
 	}
 
 	log.Printf("[INFO] New connection from %s", r.RemoteAddr)
-	handleSession(ws, r.RemoteAddr)
+	handleVLESSSession(ws, r.RemoteAddr)
 }
 
-func handleSession(ws *websocket.Conn, clientAddr string) {
+// VLESS 协议常量
+const (
+	vlessVersion = 0
+)
+
+// VLESS 地址类型
+const (
+	atypIPv4   = 1
+	atypDomain = 2
+	atypIPv6   = 3
+)
+
+// VLESS 命令类型
+const (
+	cmdTCP = 1
+	cmdUDP = 2
+	cmdMux = 3
+)
+
+func handleVLESSSession(ws *websocket.Conn, clientAddr string) {
 	var (
 		remoteConn net.Conn
 		mu         sync.Mutex
@@ -206,132 +224,197 @@ func handleSession(ws *websocket.Conn, clientAddr string) {
 		}
 	}()
 
-	pumpRemoteToWS := func(conn net.Conn) {
+	// 读取第一个消息（VLESS 请求头）
+	_, headerData, err := ws.ReadMessage()
+	if err != nil {
+		log.Printf("[ERROR] Failed to read VLESS header: %v", err)
+		return
+	}
+
+	// 解析 VLESS 请求
+	targetAddr, command, payload, err := parseVLESSRequest(headerData)
+	if err != nil {
+		log.Printf("[ERROR] Invalid VLESS request from %s: %v", clientAddr, err)
+		return
+	}
+
+	if command != cmdTCP {
+		log.Printf("[WARN] Unsupported command: %d", command)
+		return
+	}
+
+	// 连接目标服务器
+	dialer := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := dialer.Dial("tcp", targetAddr)
+	if err != nil {
+		log.Printf("[ERROR] Failed to connect to %s: %v", targetAddr, err)
+		return
+	}
+
+	mu.Lock()
+	remoteConn = conn
+	mu.Unlock()
+
+	log.Printf("[INFO] Connected to remote: %s", targetAddr)
+
+	// 发送 VLESS 响应头
+	responseHeader := []byte{vlessVersion, 0} // version + addon length (0)
+	mu.Lock()
+	err = ws.WriteMessage(websocket.BinaryMessage, responseHeader)
+	mu.Unlock()
+	if err != nil {
+		log.Printf("[ERROR] Failed to send VLESS response: %v", err)
+		return
+	}
+
+	// 如果有 payload，先发送到目标服务器
+	if len(payload) > 0 {
+		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		if _, err := conn.Write(payload); err != nil {
+			log.Printf("[ERROR] Failed to write payload: %v", err)
+			return
+		}
+		conn.SetWriteDeadline(time.Time{})
+	}
+
+	// 双向数据转发
+	done := make(chan struct{})
+	var closeOnce sync.Once
+	closeDone := func() { closeOnce.Do(func() { close(done) }) }
+
+	// Remote -> WebSocket
+	go func() {
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := conn.Read(buf)
 			if err != nil {
-				break
+				closeDone()
+				return
 			}
 			mu.Lock()
 			if closed {
 				mu.Unlock()
-				break
+				closeDone()
+				return
 			}
 			err = ws.WriteMessage(websocket.BinaryMessage, buf[:n])
 			mu.Unlock()
 			if err != nil {
-				break
-			}
-		}
-		mu.Lock()
-		if !closed {
-			ws.WriteMessage(websocket.TextMessage, []byte("CLOSE"))
-		}
-		mu.Unlock()
-		cleanup()
-	}
-
-	parseAddress := func(addr string) (host string, port string) {
-		if strings.HasPrefix(addr, "[") {
-			end := strings.Index(addr, "]")
-			if end == -1 || len(addr) < end+3 {
-				return addr, ""
-			}
-			return addr[1:end], addr[end+2:]
-		}
-		sep := strings.LastIndex(addr, ":")
-		if sep == -1 {
-			return addr, ""
-		}
-		return addr[:sep], addr[sep+1:]
-	}
-
-	connectToRemote := func(targetAddr, firstFrame string) error {
-		host, port := parseAddress(targetAddr)
-		if host == "" || port == "" {
-			return fmt.Errorf("invalid address: %s", targetAddr)
-		}
-
-		dialer := net.Dialer{Timeout: 10 * time.Second}
-		conn, err := dialer.Dial("tcp", net.JoinHostPort(host, port))
-		if err != nil {
-			return err
-		}
-
-		if firstFrame != "" {
-			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if _, err := conn.Write([]byte(firstFrame)); err != nil {
-				conn.Close()
-				return err
-			}
-			conn.SetWriteDeadline(time.Time{})
-		}
-
-		mu.Lock()
-		remoteConn = conn
-		mu.Unlock()
-
-		log.Printf("[INFO] Connected to remote: %s", targetAddr)
-		ws.WriteMessage(websocket.TextMessage, []byte("CONNECTED"))
-		go pumpRemoteToWS(conn)
-		return nil
-	}
-
-	for {
-		msgType, data, err := ws.ReadMessage()
-		if err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				log.Printf("[WARN] Read error from %s: %v", clientAddr, err)
-			}
-			break
-		}
-
-		// 重置读取超时
-		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
-
-		mu.Lock()
-		if closed {
-			mu.Unlock()
-			break
-		}
-		mu.Unlock()
-
-		switch msgType {
-		case websocket.TextMessage:
-			msg := string(data)
-			switch {
-			case strings.HasPrefix(msg, "CONNECT:"):
-				rest := msg[8:]
-				sep := strings.Index(rest, "|")
-				if sep == -1 {
-					ws.WriteMessage(websocket.TextMessage, []byte("ERROR:invalid CONNECT format"))
-					continue
-				}
-				addr := rest[:sep]
-				firstFrame := rest[sep+1:]
-				if err := connectToRemote(addr, firstFrame); err != nil {
-					log.Printf("[ERROR] Connect to %s failed: %v", addr, err)
-					ws.WriteMessage(websocket.TextMessage, []byte("ERROR:"+err.Error()))
-					return
-				}
-
-			case strings.HasPrefix(msg, "DATA:"):
-				mu.Lock()
-				if remoteConn != nil {
-					remoteConn.Write([]byte(msg[5:]))
-				}
-				mu.Unlock()
-
-			case msg == "CLOSE":
+				closeDone()
 				return
 			}
-		case websocket.BinaryMessage:
-			mu.Lock()
-			if remoteConn != nil {
-				remoteConn.Write(data)
-			}
-			mu.Unlock()
 		}
+	}()
+
+	// WebSocket -> Remote
+	go func() {
+		for {
+			_, data, err := ws.ReadMessage()
+			if err != nil {
+				closeDone()
+				return
+			}
+			ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+			mu.Lock()
+			if closed || remoteConn == nil {
+				mu.Unlock()
+				closeDone()
+				return
+			}
+			_, err = remoteConn.Write(data)
+			mu.Unlock()
+			if err != nil {
+				closeDone()
+				return
+			}
+		}
+	}()
+
+	<-done
+	log.Printf("[INFO] Session ended: %s -> %s", clientAddr, targetAddr)
+}
+
+// parseVLESSRequest 解析 VLESS 请求
+// VLESS 协议格式:
+// +----------+----------+----------+----------+----------+----------+----------+
+// | Version  |  UUID    | Addon    | Command  | Port     | AddrType | Address  |
+// | 1 byte   | 16 bytes | Variable | 1 byte   | 2 bytes  | 1 byte   | Variable |
+// +----------+----------+----------+----------+----------+----------+----------+
+func parseVLESSRequest(data []byte) (addr string, command byte, payload []byte, err error) {
+	if len(data) < 24 {
+		return "", 0, nil, fmt.Errorf("data too short: %d", len(data))
 	}
+
+	// 版本检查
+	version := data[0]
+	if version != vlessVersion {
+		return "", 0, nil, fmt.Errorf("unsupported version: %d", version)
+	}
+
+	// UUID 验证
+	reqUUID, err := uuid.FromBytes(data[1:17])
+	if err != nil {
+		return "", 0, nil, fmt.Errorf("invalid UUID: %v", err)
+	}
+	if reqUUID != userUUID {
+		return "", 0, nil, fmt.Errorf("UUID mismatch")
+	}
+
+	// Addon 长度
+	addonLen := data[17]
+	offset := 18 + int(addonLen)
+
+	if len(data) < offset+4 {
+		return "", 0, nil, fmt.Errorf("data too short for command")
+	}
+
+	// 命令
+	command = data[offset]
+	offset++
+
+	// 端口 (big-endian)
+	port := binary.BigEndian.Uint16(data[offset : offset+2])
+	offset += 2
+
+	// 地址类型
+	addrType := data[offset]
+	offset++
+
+	var host string
+	switch addrType {
+	case atypIPv4:
+		if len(data) < offset+4 {
+			return "", 0, nil, fmt.Errorf("data too short for IPv4")
+		}
+		host = net.IP(data[offset : offset+4]).String()
+		offset += 4
+	case atypDomain:
+		if len(data) < offset+1 {
+			return "", 0, nil, fmt.Errorf("data too short for domain length")
+		}
+		domainLen := int(data[offset])
+		offset++
+		if len(data) < offset+domainLen {
+			return "", 0, nil, fmt.Errorf("data too short for domain")
+		}
+		host = string(data[offset : offset+domainLen])
+		offset += domainLen
+	case atypIPv6:
+		if len(data) < offset+16 {
+			return "", 0, nil, fmt.Errorf("data too short for IPv6")
+		}
+		host = net.IP(data[offset : offset+16]).String()
+		offset += 16
+	default:
+		return "", 0, nil, fmt.Errorf("unsupported address type: %d", addrType)
+	}
+
+	addr = fmt.Sprintf("%s:%d", host, port)
+
+	// 剩余数据作为 payload
+	if offset < len(data) {
+		payload = data[offset:]
+	}
+
+	return addr, command, payload, nil
 }
