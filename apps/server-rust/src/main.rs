@@ -109,7 +109,7 @@ async fn handle_vless_session(mut ws: WebSocket, state: Arc<AppState>) -> anyhow
     // Send initial payload if exists
     if !payload.is_empty() {
         use tokio::io::AsyncWriteExt;
-        let (mut remote_read, mut remote_write) = remote.into_split();
+        let (remote_read, mut remote_write) = remote.into_split();
         remote_write.write_all(&payload).await?;
         
         // Bidirectional relay

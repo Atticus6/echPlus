@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 pub const VLESS_VERSION: u8 = 0;
 pub const CMD_TCP: u8 = 1;
-pub const CMD_UDP: u8 = 2;
+// pub const CMD_UDP: u8 = 2;
 
 const ATYP_IPV4: u8 = 1;
 const ATYP_DOMAIN: u8 = 2;
